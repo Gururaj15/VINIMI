@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>VINIMI Live Camera</title>
+  <style>
+    body {
+      background: #111;
+      color: #eee;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .container {
+      max-width: 900px;
+      margin: 1rem auto;
+    }
+    video, canvas {
+      max-width: 100%;
+      border-radius: 8px;
+    }
+    #status {
+      margin-top: 0.5rem;
+      padding: 0.5rem 0.75rem;
+      background: #000;
+      color: #0f0;
+      font-family: monospace;
+      border-radius: 4px;
+      white-space: pre-wrap;
+    }
+    .controls {
+      margin: 0.75rem 0;
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    input[type="text"],
+    input[type="number"] {
+      padding: 0.3rem 0.5rem;
+      border-radius: 4px;
+      border: 1px solid #444;
+      background: #111;
+      color: #eee;
+    }
+    button {
+      padding: 0.4rem 0.9rem;
+      border-radius: 4px;
+      border: 1px solid #444;
+      background: #222;
+      color: #eee;
+      cursor: pointer;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+
+    /* Simple modal styles */
+    #registerModal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+    #registerModal .modal-content {
+      background: #181818;
+      padding: 1rem 1.25rem;
+      border-radius: 8px;
+      width: 320px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+    #registerModal h2 {
+      margin-top: 0;
+      margin-bottom: 0.75rem;
+    }
+    #registerModal .field {
+      margin-bottom: 0.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+    #registerModal .actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.5rem;
+      margin-top: 0.75rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>VINIMI Live Detection</h1>
+
+    <div class="controls">
+      <label for="backendUrl">Backend URL:</label>
+      <input
+        id="backendUrl"
+        type="text"
+        size="40"
+        value="http://localhost:8001/api/live/frame"
+      />
+      <button id="startBtn">Start</button>
+      <button id="stopBtn" disabled>Stop</button>
+    </div>
+
+    <video id="video" autoplay playsinline></video>
+    <canvas id="canvas" style="display:none;"></canvas>
+
+    <div id="status">Idle</div>
+  </div>
+
+  <!-- Modal for registering unknown person -->
+  <div id="registerModal">
+    <div class="modal-content">
+      <h2>Register Unknown Person</h2>
+      <p style="font-size: 0.85rem; color:#aaa;">
+        A new face was detected. Enter details to save this worker so VINIMI can recognize them next time.
+      </p>
+      <div class="field">
+        <label for="reg-name">Name</label>
+        <input type="text" id="reg-name" placeholder="Full name" />
+      </div>
+      <div class="field">
+        <label for="reg-phone">Phone</label>
+        <input type="text" id="reg-phone" placeholder="+1..." />
+      </div>
+      <div class="field">
+        <label for="reg-company">Company ID</label>
+        <input type="number" id="reg-company" placeholder="e.g. 1" />
+      </div>
+      <div class="field">
+        <label for="reg-location">Location ID</label>
+        <input type="number" id="reg-location" placeholder="e.g. 2" />
+      </div>
+      <div class="actions">
+        <button id="reg-cancelBtn">Cancel</button>
+        <button id="reg-saveBtn">Save</button>
+      </div>
+      <div id="reg-status" style="margin-top:0.4rem; font-size:0.8rem; color:#0f0;"></div>
+    </div>
+  </div>
+
+  <script>
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const statusEl = document.getElementById("status");
+    const backendInput = document.getElementById("backendUrl");
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
+
+    const registerModal = document.getElementById("registerModal");
+    const regName = document.getElementById("reg-name");
+    const regPhone = document.getElementById("reg-phone");
+    const regCompany = document.getElementById("reg-company");
+    const regLocation = document.getElementById("reg-location");
+    const regCancelBtn = document.getElementById("reg-cancelBtn");
+    const regSaveBtn = document.getElementById("reg-saveBtn");
+    const regStatus = document.getElementById("reg-status");
+
+    let stream = null;
+    let captureInterval = null;
+    let lastFrameBlob = null;
+    let showingRegister = false;
+
+    async function startCamera() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "user" },
+          audio: false,
+        });
+        video.srcObject = stream;
+        await video.play();
+      } catch (err) {
+        console.error("getUserMedia error:", err);
+        statusEl.textContent = "Camera error: " + err.message;
+        throw err;
+      }
+    }
+
+    function stopCamera() {
+      if (stream) {
+        stream.getTracks().forEach((t) => t.stop());
+        stream = null;
+      }
+    }
+
+    async function registerUnknown(faceBlob) {
+      try {
+        const formData = new FormData();
+        formData.append("face", faceBlob, "face.jpg");
+        formData.append("name", regName.value || "Unknown");
+        formData.append("phone", regPhone.value || "");
+        formData.append("company_id", regCompany.value || "");
+        formData.append("location_id", regLocation.value || "");
+
+        regStatus.textContent = "Saving...";
+        const res = await fetch("http://localhost:8001/api/workers/register", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!res.ok) {
+          const t = await res.text();
+          regStatus.style.color = "#f55";
+          regStatus.textContent = "Error: " + res.status + " " + t;
+          return;
+        }
+
+        const data = await res.json();
+        console.log("Registered:", data);
+        regStatus.style.color = "#0f0";
+        regStatus.textContent = "Saved. Reloading gallery…";
+
+        // Backend should reload gallery on its own; if you expose an endpoint,
+        // you could call it here as well.
+
+        // Close modal after short delay
+        setTimeout(() => {
+          registerModal.style.display = "none";
+          showingRegister = false;
+          regStatus.textContent = "";
+          regName.value = "";
+          regPhone.value = "";
+          regCompany.value = "";
+          regLocation.value = "";
+        }, 1000);
+      } catch (err) {
+        console.error("registerUnknown error:", err);
+        regStatus.style.color = "#f55";
+        regStatus.textContent = "Error: " + err;
+      }
+    }
+
+    async function captureAndSendFrame() {
+      if (!video.videoWidth || !video.videoHeight) {
+        return;
+      }
+
+      const backendUrl = backendInput.value.trim();
+      if (!backendUrl) return;
+
+      const ctx = canvas.getContext("2d");
+      const targetWidth = 640;
+      const scale = targetWidth / video.videoWidth;
+      const targetHeight = Math.round(video.videoHeight * scale);
+
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+      ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
+
+      const blob = await new Promise((resolve) =>
+        canvas.toBlob(resolve, "image/jpeg", 0.7)
+      );
+      if (!blob) return;
+      lastFrameBlob = blob;
+
+      const formData = new FormData();
+      formData.append("file", blob, "frame.jpg");
+
+      try {
+        const resp = await fetch(backendUrl, {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!resp.ok) {
+          statusEl.textContent = "Error: " + resp.status + " " + resp.statusText;
+          return;
+        }
+
+        const data = await resp.json();
+        statusEl.textContent = "OK: " + JSON.stringify(data);
+
+        // If unknown person detected, open registration modal
+        if (
+          data &&
+          data.person &&
+          (data.person.name === "Unknown" || data.person.name === "unknown") &&
+          !showingRegister
+        ) {
+          showingRegister = true;
+          registerModal.style.display = "flex";
+        }
+      } catch (err) {
+        console.error("fetch error:", err);
+        statusEl.textContent = "Error: " + err;
+      }
+    }
+
+    startBtn.addEventListener("click", async () => {
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      statusEl.textContent = "Starting camera…";
+
+      try {
+        await startCamera();
+        statusEl.textContent = "Camera started. Sending frames…";
+
+        // Capture every 4 seconds
+        if (captureInterval) clearInterval(captureInterval);
+        captureInterval = setInterval(captureAndSendFrame, 4000);
+      } catch {
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+      }
+    });
+
+    stopBtn.addEventListener("click", () => {
+      stopCamera();
+      if (captureInterval) clearInterval(captureInterval);
+      captureInterval = null;
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+      statusEl.textContent = "Stopped";
+    });
+
+    regCancelBtn.addEventListener("click", () => {
+      registerModal.style.display = "none";
+      showingRegister = false;
+      regStatus.textContent = "";
+    });
+
+    regSaveBtn.addEventListener("click", async () => {
+      if (!lastFrameBlob) {
+        regStatus.style.color = "#f55";
+        regStatus.textContent = "No frame captured yet.";
+        return;
+      }
+      await registerUnknown(lastFrameBlob);
+    });
+
+    window.addEventListener("beforeunload", () => {
+      stopCamera();
+      if (captureInterval) clearInterval(captureInterval);
+    });
+  </script>
+</body>
+</html>

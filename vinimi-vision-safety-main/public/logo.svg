@@ -1,0 +1,11 @@
+<svg width="180" height="40" viewBox="0 0 180 40" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="VINIMI">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop stop-color="#38bdf8" offset="0%"/>
+      <stop stop-color="#6366f1" offset="50%"/>
+      <stop stop-color="#a855f7" offset="100%"/>
+    </linearGradient>
+  </defs>
+  <rect width="180" height="40" rx="8" fill="#0b1220"/>
+  <text x="16" y="27" font-family="Inter, system-ui, sans-serif" font-size="22" font-weight="800" fill="url(#g)">VINIMI</text>
+</svg>
