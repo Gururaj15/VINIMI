@@ -15,18 +15,10 @@ import {
   Shield,
 } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { fetchRecentAlerts, RecentAlert } from "@/lib/api";
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
-
-type RecentAlert = {
-  id: string;
-  worker_name: string;
-  worker_id: number | null;
-  location_name: string;
-  timestamp: string | null;
-};
-
-const formatTimeAgo = (iso: string) => {
+const formatTimeAgo = (iso?: string | null) => {
+  if (!iso) return "";
   const d = new Date(iso);
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
@@ -59,14 +51,10 @@ const Dashboard = () => {
   const [loadingAlerts, setLoadingAlerts] = useState(false);
 
   useEffect(() => {
-    const fetchRecentAlerts = async () => {
+    const loadRecentAlerts = async () => {
       try {
         setLoadingAlerts(true);
-        const res = await fetch(`${API_BASE}/api/live/recent-alerts`);
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
-        }
-        const data: RecentAlert[] = await res.json();
+        const data = await fetchRecentAlerts(5);
         setRecentAlerts(data);
       } catch (err) {
         console.error("Failed to fetch recent alerts:", err);
@@ -76,7 +64,7 @@ const Dashboard = () => {
       }
     };
 
-    fetchRecentAlerts();
+    loadRecentAlerts();
   }, []);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
@@ -408,9 +396,47 @@ const Dashboard = () => {
               </Button>
             </CardHeader>
             <CardContent>
-              <div className="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-600 bg-slate-50">
-                No alerts to display yet.
-              </div>
+              {loadingAlerts ? (
+                <div className="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-600 bg-slate-50">
+                  Loading recent alerts…
+                </div>
+              ) : recentAlerts.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-600 bg-slate-50">
+                  No alerts to display yet.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {recentAlerts.map((alert) => (
+                    <div
+                      key={alert.id}
+                      className="flex items-start justify-between gap-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="h-9 w-9 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center">
+                          <AlertTriangle className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <div className="font-semibold text-slate-900">
+                            {alert.worker_name || "Unknown worker"}
+                          </div>
+                          <div className="text-xs text-slate-600">
+                            {alert.location_name || "Unknown location"}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right space-y-1">
+                        <div className="text-xs text-slate-500">
+                          {formatTimeAgo(alert.timestamp)}
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <Badge variant="destructive">Helmet Off</Badge>
+                          <Badge variant="outline">{alert.sms_status || "pending"}</Badge>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </motion.div>

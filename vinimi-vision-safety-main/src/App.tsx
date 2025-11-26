@@ -82,6 +82,7 @@ const App = () => (
               </ProtectedRoute>
             }
           />
+          <Route path="/profile" element={<Navigate to="/account" replace />} />
           <Route
             path="/violations"
             element={

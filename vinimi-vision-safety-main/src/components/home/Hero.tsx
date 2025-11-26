@@ -1,6 +1,7 @@
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { ArrowRight, ShieldCheck, Sparkles } from "lucide-react";
 import { isAuthed } from "@/lib/auth";
+import brandLogo from "@/assets/logo1.png";
 
 const Hero = () => {
   const navigate = useNavigate();
@@ -21,8 +22,17 @@ const Hero = () => {
             <Sparkles className="h-4 w-4" />
             Real-time PPE & Face Recognition
           </div>
-          <h1 className="text-4xl md:text-5xl font-extrabold leading-tight text-white">
-            VINIMI — Real-Time PPE & Face Recognition for Safer Sites
+          <h1 className="text-3xl md:text-4xl font-extrabold leading-tight text-white flex items-start gap-3">
+            <img
+              src={brandLogo}
+              alt="VINIMI logo"
+              className="h-10 w-10 rounded-lg bg-white/10 p-2"
+              style={{ width: "9rem", height: "9rem" }}
+            />
+            <span className="space-y-1 leading-tight">
+              <span className="block">VINIMI — Real-Time PPE</span>
+              <span className="block">& Face Recognition for Safer Sites</span>
+            </span>
           </h1>
           <p className="text-lg text-slate-200 max-w-2xl">
             Detect hard-hats, recognize authorized workers, and alert instantly—right from your CCTV or webcams.

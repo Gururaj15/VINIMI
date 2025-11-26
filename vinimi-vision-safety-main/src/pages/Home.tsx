@@ -30,7 +30,7 @@ const Home = () => {
             <img src={logo} alt="VINIMI logo" className="h-14 w-auto rounded-lg p-0" />
             <div className="text-lg font-bold tracking-tight">VINIMI</div>
           </Link>
-          <nav className="hidden md:flex items-center gap-6 text-sm text-slate-700">
+          <nav className="hidden md:flex items-center gap-6 text-[1.1rem] text-slate-700">
             <Link to="/" className="hover:text-primary transition-colors">Home</Link>
             <Link to="/dashboard" className="hover:text-primary transition-colors">Dashboard</Link>
             <Link to="/live" className="hover:text-primary transition-colors">Live Monitoring</Link>
@@ -47,7 +47,7 @@ const Home = () => {
               Try Live Monitoring
             </Link>
             {!user ? (
-              <div className="hidden md:flex items-center gap-3 text-sm">
+              <div className="hidden md:flex items-center gap-3 text-[1.1rem]">
                 <Link to="/signin" className="text-slate-700 hover:text-primary">
                   Sign In
                 </Link>
@@ -59,7 +59,7 @@ const Home = () => {
                 </Link>
               </div>
             ) : (
-              <div className="hidden md:flex items-center gap-3 text-sm">
+              <div className="hidden md:flex items-center gap-3 text-[1.1rem]">
                 <Link to="/account" className="text-slate-700 hover:text-primary">
                   Profile
                 </Link>

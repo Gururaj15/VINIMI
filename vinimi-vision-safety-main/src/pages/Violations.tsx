@@ -45,8 +45,8 @@ const ViolationsPage = () => {
       >
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-              <AlertTriangle className="h-7 w-7 text-amber-400" />
+            <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-3">
+              <AlertTriangle className="h-7 w-7 text-amber-500" />
               Helmet Violations
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
@@ -55,22 +55,22 @@ const ViolationsPage = () => {
           </div>
           <Button
             variant="outline"
-            className="border-white/20 text-white hover:bg-white/10"
+            className="border-slate-300 text-slate-700 hover:bg-slate-50"
             onClick={() => window.location.reload()}
           >
             Refresh
           </Button>
         </div>
 
-        <Card className="border-white/10 bg-slate-950/70">
+        <Card className="border border-slate-200 bg-white shadow-sm">
           <CardHeader>
-            <CardTitle className="text-white">Recent events</CardTitle>
+            <CardTitle className="text-slate-900">Recent events</CardTitle>
           </CardHeader>
           <CardContent>
             {loading ? (
               <p className="text-sm text-muted-foreground">Loading…</p>
             ) : violations.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-white/15 p-8 text-center text-sm text-muted-foreground">
+              <div className="rounded-2xl border border-dashed border-slate-200 p-8 text-center text-sm text-slate-600 bg-slate-50">
                 No helmet-off events recorded yet.
               </div>
             ) : (
@@ -81,10 +81,10 @@ const ViolationsPage = () => {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: index * 0.02 }}
-                    className="rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur flex flex-col gap-2"
+                    className="rounded-2xl border border-slate-200 bg-white p-4 flex flex-col gap-2 shadow-sm"
                   >
                     <div className="flex items-center justify-between">
-                      <div className="text-white font-semibold text-lg">
+                      <div className="text-slate-900 font-semibold text-lg">
                         {violation.worker_name || "Unknown worker"}
                       </div>
                       <div className="flex gap-2 items-center">
@@ -94,7 +94,7 @@ const ViolationsPage = () => {
                         </Badge>
                       </div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-4 text-xs text-slate-300">
+                    <div className="flex flex-wrap items-center gap-4 text-xs text-slate-600">
                       <span className="inline-flex items-center gap-1">
                         <MapPin className="h-3 w-3" />
                         {violation.location_name || "Unknown location"}
@@ -105,7 +105,7 @@ const ViolationsPage = () => {
                       </span>
                     </div>
                     {violation.phone && (
-                      <div className="text-[11px] text-slate-400">
+                      <div className="text-[11px] text-slate-500">
                         Phone: {violation.phone}
                       </div>
                     )}

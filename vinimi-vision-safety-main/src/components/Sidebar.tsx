@@ -1,24 +1,27 @@
-import { ReactNode, useEffect } from "react";
+import { useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Home, LayoutDashboard, Users, Video, AlertTriangle, Upload, X } from "lucide-react";
+import {
+  Home,
+  LayoutDashboard,
+  Users,
+  Video,
+  AlertTriangle,
+  Upload,
+  X,
+  User,
+  CircleHelp,
+} from "lucide-react";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import brandLogo from "@/assets/logo1.png";
+import { useToast } from "@/hooks/use-toast";
 
 type NavItem = {
-  path: string;
+  path?: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
+  onClick?: () => void;
 };
-
-const navItems: NavItem[] = [
-  { path: "/", label: "Home", icon: Home },
-  { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { path: "/workers", label: "Workers", icon: Users },
-  { path: "/live", label: "Live Monitoring", icon: Video },
-  { path: "/recent-alerts", label: "Recent Alerts", icon: AlertTriangle },
-  { path: "/ask-vlm", label: "Ask VINIMI", icon: Upload },
-];
 
 interface SidebarProps {
   open: boolean;
@@ -29,6 +32,26 @@ interface SidebarProps {
 const Sidebar = ({ open, onToggle, onClose }: SidebarProps) => {
   const location = useLocation();
   const isMobile = typeof window !== "undefined" ? window.innerWidth < 1024 : false;
+  const { toast } = useToast();
+
+  const navItems: NavItem[] = [
+    { path: "/", label: "Home", icon: Home },
+    { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { path: "/workers", label: "Workers", icon: Users },
+    { path: "/live", label: "Live Monitoring", icon: Video },
+    { path: "/recent-alerts", label: "Recent Alerts", icon: AlertTriangle },
+    { path: "/ask-vlm", label: "Ask VINIMI", icon: Upload },
+    { path: "/account", label: "Profile", icon: User },
+    {
+      label: "Help",
+      icon: CircleHelp,
+      onClick: () =>
+        toast({
+          title: "Help & Support",
+          description: "Email hello@vinimi.ai — help center coming soon.",
+        }),
+    },
+  ];
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -83,34 +106,46 @@ const Sidebar = ({ open, onToggle, onClose }: SidebarProps) => {
             <Tooltip.Provider delayDuration={200}>
               {navItems.map((item) => {
                 const isActive =
-                  location.pathname === item.path ||
-                  (item.path === "/live" && location.pathname === "/live-monitoring");
+                  Boolean(item.path) &&
+                  (location.pathname === item.path ||
+                    (item.path === "/live" && location.pathname === "/live-monitoring"));
                 const glow = isActive
                   ? "border-l-2 border-blue-600 bg-blue-50 text-blue-700"
                   : "border-l-2 border-transparent text-slate-600 hover:bg-slate-50 hover:text-slate-900";
                 const content = (
-                  <Link to={item.path} className="block">
-                    <div
-                      className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all ${glow}`}
-                    >
-                      <item.icon
-                        className={`h-5 w-5 shrink-0 ${
-                          isActive ? "text-blue-700" : "text-slate-500"
-                        }`}
-                      />
-                      {open && (
-                        <span className="text-sm font-medium">
-                          {item.label}
-                        </span>
-                      )}
-                    </div>
+                  <div
+                    className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all ${glow}`}
+                  >
+                    <item.icon
+                      className={`h-5 w-5 shrink-0 ${
+                        isActive ? "text-blue-700" : "text-slate-500"
+                      }`}
+                    />
+                    {open && (
+                      <span className="text-sm font-medium">
+                        {item.label}
+                      </span>
+                    )}
+                  </div>
+                );
+                const wrapped = item.path ? (
+                  <Link to={item.path} className="block" onClick={onClose}>
+                    {content}
                   </Link>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={item.onClick}
+                    className="w-full text-left"
+                  >
+                    {content}
+                  </button>
                 );
                 return open ? (
-                  <div key={item.path}>{content}</div>
+                  <div key={item.path || item.label}>{wrapped}</div>
                 ) : (
-                  <Tooltip.Root key={item.path}>
-                    <Tooltip.Trigger asChild>{content}</Tooltip.Trigger>
+                  <Tooltip.Root key={item.path || item.label}>
+                    <Tooltip.Trigger asChild>{wrapped}</Tooltip.Trigger>
                     <Tooltip.Portal>
                       <Tooltip.Content
                         side="right"

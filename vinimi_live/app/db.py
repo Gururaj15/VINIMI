@@ -4,16 +4,21 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
 import pymysql
+from dotenv import load_dotenv
+
+# Load local env vars from vinimi_live/.env if present (non-fatal if missing)
+load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env", override=False)
 
 # ---------- LOCAL MYSQL CONFIG ----------
 LOCAL_DB_HOST = os.getenv("LOCAL_DB_HOST", "127.0.0.1")
 LOCAL_DB_PORT = int(os.getenv("LOCAL_DB_PORT", "3306"))
 LOCAL_DB_USER = os.getenv("LOCAL_DB_USER", "root")
-LOCAL_DB_PASS = os.getenv("LOCAL_DB_PASS", "Rajini@123")
+LOCAL_DB_PASS = os.getenv("LOCAL_DB_PASS", "")
 LOCAL_DB_NAME = os.getenv("LOCAL_DB_NAME", "vinimi_local")
 
 VIOLATION_TABLE_SQL = """
