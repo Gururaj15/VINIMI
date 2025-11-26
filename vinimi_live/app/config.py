@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        extra = "ignore"  # allow unrelated env vars like LOCAL_DB_* without errors
 
 
 @lru_cache
