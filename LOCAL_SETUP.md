@@ -50,7 +50,6 @@ Before starting, ensure you have the following installed:
 - **Node.js LTS** (≥ 18) + npm – frontend package manager
 - **Python 3.10+** (recommend 3.11) – backend runtime
 - **MySQL 8.x server** – database
-- **Homebrew** (macOS only) – package manager
 
 ### macOS: Quick Install
 
@@ -63,10 +62,55 @@ brew install git node python mysql
 brew services start mysql
 ```
 
+### Windows: Quick Install
+
+#### Option 1: Using Chocolatey (Recommended)
+
+1. **Install Chocolatey** (open PowerShell as Administrator):
+   ```powershell
+   Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+   [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+   iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+   ```
+
+2. **Install dependencies** (PowerShell as Administrator):
+   ```powershell
+   choco install -y git nodejs python mysql-community-server
+   ```
+
+3. **Start MySQL service**:
+   ```powershell
+   net start MySQL80
+   ```
+
+#### Option 2: Manual Installation
+
+1. Download and install from official websites:
+   - [Git for Windows](https://git-scm.com/download/win)
+   - [Node.js LTS](https://nodejs.org/) (includes npm)
+   - [Python 3.11](https://www.python.org/downloads/) – **Check "Add Python to PATH" during install**
+   - [MySQL 8.0 Community Server](https://dev.mysql.com/downloads/mysql/) – MySQL Installer recommended
+
+2. After MySQL installation, MySQL should start automatically. If not:
+   ```powershell
+   net start MySQL80
+   ```
+
+### Linux (Ubuntu/Debian): Quick Install
+
+```bash
+sudo apt-get update
+sudo apt-get install -y git curl nodejs npm python3.11 python3-venv mysql-server
+sudo systemctl start mysql
+```
+
 ### Optional Dependencies
 
-- **ffmpeg** – for video processing (`brew install ffmpeg`)
-- **tf-keras** – if DeepFace complains about missing backend (`pip install tf-keras`)
+- **ffmpeg** – for video processing
+  - macOS: `brew install ffmpeg`
+  - Windows: `choco install ffmpeg`
+  - Linux: `sudo apt-get install ffmpeg`
+- **tf-keras** – if DeepFace complains (`pip install tf-keras`)
 
 ---
 
@@ -112,8 +156,19 @@ When prompted, enter your MySQL root password.
 
 #### 3. Import schema and seed data
 
+**macOS/Linux:**
 ```bash
 mysql -u root -p vinimi_local < vinimi_live/vinimi_local_schema.sql
+```
+
+**Windows (PowerShell):**
+```powershell
+Get-Content vinimi_live/vinimi_local_schema.sql | mysql -u root -p vinimi_local
+```
+
+**Windows (Command Prompt):**
+```cmd
+mysql -u root -p vinimi_local < vinimi_live\vinimi_local_schema.sql
 ```
 
 #### 4. Verify the import
@@ -178,6 +233,17 @@ python -m venv .venv
 .venv\Scripts\Activate.ps1
 ```
 
+**Windows (Command Prompt):**
+```cmd
+python -m venv .venv
+.venv\Scripts\activate.bat
+```
+
+> **Tip:** If PowerShell blocks `.venv\Scripts\Activate.ps1`, run as Administrator:
+> ```powershell
+> Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+> ```
+
 ### 3. Upgrade pip and install dependencies
 
 ```bash
@@ -225,8 +291,14 @@ EOF
 
 ### 5. Run the backend
 
+**macOS/Linux:**
 ```bash
 uvicorn app.main:app --reload --port 8001
+```
+
+**Windows (PowerShell/Command Prompt):**
+```powershell
+python -m uvicorn app.main:app --reload --port 8001
 ```
 
 You should see:
@@ -267,12 +339,23 @@ npm install
 
 ### 3. Create environment configuration
 
-Create a file named `.env.local`:
-
+**macOS/Linux:**
 ```bash
 cat > .env.local << 'EOF'
 VITE_LIVE_API_URL=http://localhost:8001
 EOF
+```
+
+**Windows (PowerShell):**
+```powershell
+@'
+VITE_LIVE_API_URL=http://localhost:8001
+'@ | Out-File -Encoding UTF8 .env.local
+```
+
+**Windows (Command Prompt):**
+```cmd
+echo VITE_LIVE_API_URL=http://localhost:8001 > .env.local
 ```
 
 ### 4. Run the development server
@@ -438,12 +521,30 @@ Or use OpenCV backend (if supported by your DeepFace version):
 
 **Symptom:** `Address already in use` when starting backend or frontend.
 
-**Fix:**
+**Option 1: Find and kill the process**
+
+**macOS/Linux:**
+```bash
+# Find what's using port 8001
+lsof -i :8001
+# Kill the process (replace PID with actual process ID)
+kill -9 <PID>
+```
+
+**Windows (PowerShell as Administrator):**
+```powershell
+# Find process using port 8001
+Get-NetTCPConnection -LocalPort 8001 | Select-Object OwningProcess
+# Kill the process (replace PID with the number from above)
+Stop-Process -Id <PID> -Force
+```
+
+**Option 2: Change ports**
 
 **Backend (change port):**
 ```bash
 uvicorn app.main:app --reload --port 8002
-# Then update frontend .env:
+# Then update frontend .env.local to:
 # VITE_LIVE_API_URL=http://localhost:8002
 ```
 
@@ -458,9 +559,22 @@ npm run dev -- --port 8081
 
 **Symptom:** `npm install` fails or modules missing after git pull.
 
-**Fix:**
+**Fix (macOS/Linux):**
 ```bash
 rm -rf node_modules package-lock.json
+npm install
+```
+
+**Fix (Windows PowerShell):**
+```powershell
+rm -r -Force node_modules, package-lock.json
+npm install
+```
+
+**Fix (Windows Command Prompt):**
+```cmd
+rmdir /s /q node_modules
+del package-lock.json
 npm install
 ```
 
@@ -470,12 +584,30 @@ npm install
 
 **Symptom:** Packages not found after activating `.venv`.
 
-**Fix:**
+**Fix (macOS/Linux):**
 ```bash
 # Recreate the virtual environment
 rm -rf .venv
 python3 -m venv .venv
-source .venv/bin/activate  # or .venv\Scripts\Activate.ps1 on Windows
+source .venv/bin/activate
+pip install -U pip wheel setuptools
+pip install -r requirements.txt
+```
+
+**Fix (Windows PowerShell):**
+```powershell
+rm -r -Force .venv
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -U pip wheel setuptools
+pip install -r requirements.txt
+```
+
+**Fix (Windows Command Prompt):**
+```cmd
+rmdir /s /q .venv
+python -m venv .venv
+.venv\Scripts\activate.bat
 pip install -U pip wheel setuptools
 pip install -r requirements.txt
 ```
