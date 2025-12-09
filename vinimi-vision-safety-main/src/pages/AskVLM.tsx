@@ -11,7 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 
 const LIVE_API_BASE =
   import.meta.env.VITE_LIVE_API_URL || "http://localhost:8001";
-const DETECT_ENDPOINT = `${LIVE_API_BASE}/api/detect/frame`;
+const ASK_VLM_ENDPOINT = `${LIVE_API_BASE}/api/ask-vlm`;
 
 type DetectResponse = {
   person?: {
@@ -44,6 +44,7 @@ interface AnalysisResult {
   workerId: number | null;
   helmetOn: boolean;
   reasoning: string;
+  answer?: string;
   imageUrl: string;
   faces: FaceResult[];
 }
@@ -66,12 +67,23 @@ const AskVLM = () => {
   };
 
   const handleAnalyze = async () => {
-    if (!selectedFile) return;
+    if (!selectedFile && !question.trim()) {
+      toast({
+        title: "Need input",
+        description: "Upload an image or enter a question to analyze.",
+        variant: "destructive",
+      });
+      return;
+    }
 
-    if (!selectedFile.type.startsWith("image/")) {
+    if (
+      selectedFile &&
+      !selectedFile.type.startsWith("image/") &&
+      !selectedFile.type.startsWith("video/")
+    ) {
       toast({
         title: "Unsupported media",
-        description: "Image uploads are required for analysis right now.",
+        description: "Only images or videos are supported for analysis.",
         variant: "destructive",
       });
       return;
@@ -81,9 +93,12 @@ const AskVLM = () => {
 
     try {
       const formData = new FormData();
-      formData.append("frame", selectedFile);
+      if (selectedFile) {
+        formData.append("frame", selectedFile);
+      }
+      formData.append("question", question);
 
-      const res = await fetch(DETECT_ENDPOINT, {
+      const res = await fetch(ASK_VLM_ENDPOINT, {
         method: "POST",
         body: formData,
       });
@@ -93,12 +108,17 @@ const AskVLM = () => {
         throw new Error(text || `HTTP ${res.status}`);
       }
 
-      const data: DetectResponse = await res.json();
-      const personName = data.person?.name || "Unknown";
-      const workerId = data.person?.worker_id ?? null;
-      const helmetFlag = Boolean(data.ppe?.helmet_on);
+      const data: { answer?: string; analysis?: DetectResponse } = await res.json();
+      const detected = data.analysis || {};
+      const personName = detected.person?.name || "Unknown";
+      const workerId = detected.person?.worker_id ?? null;
+      const helmetFlag =
+        detected.ppe?.helmet_on ??
+        detected.person?.helmet_on ??
+        detected.video_facts?.majority?.helmet_on ??
+        false;
 
-      const faces: FaceResult[] = (data.faces || []).map((face, idx) => ({
+      const faces: FaceResult[] = (detected.faces || []).map((face, idx) => ({
         id: `face-${idx}`,
         label: face?.name && face.name !== "Unknown"
           ? face.name
@@ -109,12 +129,12 @@ const AskVLM = () => {
       const reasoningParts: string[] = [];
       reasoningParts.push(
         personName === "Unknown"
-          ? "No registered worker matched this face."
+          ? "No registered worker matched this media."
           : `Face recognition matched ${personName}.`
       );
       reasoningParts.push(
         helmetFlag
-          ? "Helmet presence detected in the uploaded frame."
+          ? "Helmet presence detected in the media."
           : "Helmet appears to be missing or not detected."
       );
       if (faces.length > 1) {
@@ -130,8 +150,9 @@ const AskVLM = () => {
         workerName: personName,
         workerId,
         helmetOn: helmetFlag,
-        reasoning: reasoningParts.join(" "),
-        imageUrl: previewUrl || "",
+        reasoning: data.answer?.trim() || reasoningParts.join(" "),
+        answer: data.answer?.trim(),
+        imageUrl: detected.image_url || previewUrl || "",
         faces,
       };
 
@@ -139,9 +160,11 @@ const AskVLM = () => {
 
       toast({
         title: "Analysis complete",
-        description: helmetFlag
-          ? "Helmet detected in the uploaded frame."
-          : "Helmet appears to be missing.",
+        description: data.answer?.trim()
+          ? "VLM response ready."
+          : helmetFlag
+            ? "Helmet detected in the uploaded frame."
+            : "Helmet appears to be missing.",
       });
     } catch (err: any) {
       console.error(err);
@@ -202,12 +225,12 @@ const AskVLM = () => {
                   </label>
                 </div>
 
-                {previewUrl && (
-                  <motion.div 
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="space-y-4"
-                  >
+                    {previewUrl && (
+                      <motion.div 
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="space-y-4"
+                      >
                     <Label>Preview</Label>
                     {selectedFile?.type.startsWith('image/') ? (
                       <img
@@ -221,6 +244,27 @@ const AskVLM = () => {
                         controls
                         className="w-full h-64 rounded-lg border border-white/20 shadow-lg"
                       />
+                    )}
+
+                    {!previewUrl && (
+                      <div className="space-y-2">
+                        <Label>Ask a question</Label>
+                        <Textarea
+                          placeholder="e.g., What safety checks should I do before starting a shift?"
+                          value={question}
+                          onChange={(e) => setQuestion(e.target.value)}
+                          className="glass-input resize-none"
+                          rows={3}
+                        />
+                        <Button
+                          className="w-full neon-glow group"
+                          onClick={handleAnalyze}
+                          disabled={isAnalyzing}
+                        >
+                          <Sparkles className="h-4 w-4 mr-2 group-hover:animate-spin" />
+                          {isAnalyzing ? "Analyzing..." : "Ask VINIMI"}
+                        </Button>
+                      </div>
                     )}
                     
                     <div className="space-y-2">
@@ -254,7 +298,7 @@ const AskVLM = () => {
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.2 }}
           >
-            <Card className="glass-card border-white/10">
+            <Card className="border border-slate-200 shadow-sm bg-white">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <AlertCircle className="h-5 w-5 text-accent" />
@@ -275,63 +319,41 @@ const AskVLM = () => {
                     animate={{ opacity: 1, y: 0 }}
                     className="space-y-4"
                   >
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="p-4 rounded-lg bg-primary/10 border border-primary/20">
-                        <Label className="text-muted-foreground text-xs">Worker Name</Label>
-                        <p className="text-lg font-semibold text-primary">{result.workerName}</p>
+                    <div className="grid grid-cols-2 gap-4 text-slate-800">
+                      <div className="p-4 rounded-lg bg-slate-50 border border-slate-200">
+                        <Label className="text-slate-500 text-xs">Worker Name</Label>
+                        <p className="text-lg font-semibold text-slate-900">{result.workerName}</p>
                       </div>
-                      <div className="p-4 rounded-lg bg-accent/10 border border-accent/20">
-                        <Label className="text-muted-foreground text-xs">Worker ID</Label>
-                        <p className="text-lg font-semibold text-accent">
+                      <div className="p-4 rounded-lg bg-slate-50 border border-slate-200">
+                        <Label className="text-slate-500 text-xs">Worker ID</Label>
+                        <p className="text-lg font-semibold text-slate-900">
                           {result.workerId || "N/A"}
                         </p>
                       </div>
                     </div>
 
-                    <div className="p-4 rounded-lg bg-muted/50 border border-white/10">
-                      <Label className="text-muted-foreground text-xs">Helmet Status</Label>
+                    <div className="p-4 rounded-lg bg-slate-50 border border-slate-200">
+                      <Label className="text-slate-500 text-xs">Helmet Status</Label>
                       <div className="mt-2">
                         <Badge
                           variant={result.helmetOn ? "outline" : "destructive"}
-                          className={result.helmetOn ? "bg-success/20 text-success border-success/50 neon-glow" : "neon-glow"}
+                          className={
+                            result.helmetOn
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                              : "bg-rose-50 text-rose-700 border-rose-200"
+                          }
                         >
                           {result.helmetOn ? "✓ Helmet On" : "✗ Helmet Off"}
                         </Badge>
                       </div>
                     </div>
 
-                    {result.faces.length > 0 && (
-                      <div className="rounded-lg border border-white/10 bg-muted/30 p-4 space-y-3">
-                        <Label className="text-muted-foreground text-xs">
-                          Detected people
-                        </Label>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          {result.faces.map((face) => (
-                            <div
-                              key={face.id}
-                              className="rounded-lg border border-white/10 bg-background/40 px-3 py-2"
-                            >
-                              <p className="text-sm font-semibold text-white">
-                                {face.label}
-                              </p>
-                              <Badge
-                                variant={face.helmetOn ? "outline" : "destructive"}
-                                className="mt-2"
-                              >
-                                {face.helmetOn ? "Helmet On" : "Helmet Off"}
-                              </Badge>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="p-4 rounded-lg bg-muted/30 border border-white/10">
-                      <Label className="text-muted-foreground text-xs flex items-center gap-2">
+                    <div className="p-4 rounded-lg bg-slate-50 border border-slate-200 text-slate-800">
+                      <Label className="text-slate-500 text-xs flex items-center gap-2">
                         <Sparkles className="h-3 w-3" />
                         Vinimi Reasoning
                       </Label>
-                      <p className="text-sm mt-2 leading-relaxed">
+                      <p className="text-sm mt-2 leading-relaxed text-slate-800">
                         {result.reasoning}
                       </p>
                     </div>

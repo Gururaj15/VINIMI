@@ -1,10 +1,5 @@
 // src/pages/LiveMonitoring.tsx
-import React, {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Select,
   SelectContent,
@@ -58,14 +53,22 @@ type LiveResult = {
 type WorkerRegisterModalProps = {
   open: boolean;
   onClose: () => void;
-  faceBlob: Blob | null;
   onRegistered?: () => void;
+  sessionId?: string | null;
+  mode: "capture" | "details" | "off";
+  instruction?: string;
+  collected?: number;
+  target?: number;
 };
 
 const WorkerRegisterModal: React.FC<WorkerRegisterModalProps> = ({
   open,
   onClose,
-  faceBlob,
+  sessionId,
+  mode,
+  instruction,
+  collected,
+  target,
   onRegistered,
 }) => {
   const [name, setName] = useState("");
@@ -74,23 +77,12 @@ const WorkerRegisterModal: React.FC<WorkerRegisterModalProps> = ({
   const [locationId, setLocationId] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!faceBlob) {
-      setPreviewUrl(null);
-      return;
-    }
-    const url = URL.createObjectURL(faceBlob);
-    setPreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [faceBlob]);
 
   if (!open) return null;
 
   const handleSubmit = async () => {
-    if (!faceBlob) {
-      setError("No face image captured.");
+    if (!sessionId) {
+      setError("Session missing.");
       return;
     }
     try {
@@ -98,13 +90,13 @@ const WorkerRegisterModal: React.FC<WorkerRegisterModalProps> = ({
       setError(null);
 
       const formData = new FormData();
-      formData.append("face", faceBlob, "face.jpg");
+      formData.append("session_id", sessionId);
       formData.append("name", name);
       formData.append("phone", phone);
       formData.append("company_id", companyId);
       formData.append("location_id", locationId);
 
-      const res = await fetch(`${LIVE_API_BASE}/api/workers/register`, {
+      const res = await fetch(`${LIVE_API_BASE}/api/workers/register/complete`, {
         method: "POST",
         body: formData,
       });
@@ -134,17 +126,14 @@ const WorkerRegisterModal: React.FC<WorkerRegisterModalProps> = ({
           Register Unknown Person
         </h2>
         <p className="text-sm text-slate-600 mb-4">
-          A new face was detected. Enter details to save this worker so VINIMI
-          can recognize them next time.
+          {mode === "capture"
+            ? instruction || "Stay still while we capture a few angles."
+            : "Enough samples captured. Enter details to save this worker."}
         </p>
 
-        {previewUrl && (
-          <div className="mb-4 flex justify-center">
-            <img
-              src={previewUrl}
-              alt="Captured face"
-              className="max-h-48 rounded-lg border border-slate-200 object-contain shadow-sm"
-            />
+        {mode === "capture" && (
+          <div className="mb-4 text-sm text-slate-600">
+            Captured {collected ?? 0}/{target ?? 0} samples...
           </div>
         )}
 
@@ -212,9 +201,9 @@ const WorkerRegisterModal: React.FC<WorkerRegisterModalProps> = ({
           <button
             className="px-3 py-2 text-sm rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium disabled:opacity-60 shadow-sm"
             onClick={handleSubmit}
-            disabled={submitting}
+            disabled={submitting || mode !== "details"}
           >
-            {submitting ? "Saving…" : "Save"}
+            {mode === "capture" ? "Capturing…" : submitting ? "Saving…" : "Save"}
           </button>
         </div>
       </div>
@@ -246,7 +235,12 @@ const LiveMonitoring: React.FC = () => {
   const [result, setResult] = useState<LiveResult | null>(null);
 
   const [registerModalOpen, setRegisterModalOpen] = useState(false);
-  const [unknownFaceBlob, setUnknownFaceBlob] = useState<Blob | null>(null);
+  const [regSessionId, setRegSessionId] = useState<string | null>(null);
+  const [regMode, setRegMode] = useState<"off" | "capture" | "details">("off");
+  const [regInstruction, setRegInstruction] = useState<string>("");
+  const [regCollected, setRegCollected] = useState<number>(0);
+  const [regTarget, setRegTarget] = useState<number>(0);
+  const regIntervalRef = useRef<number | null>(null);
 
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [loadingCameras, setLoadingCameras] = useState(false);
@@ -271,6 +265,17 @@ const LiveMonitoring: React.FC = () => {
       await videoRef.current.play();
     }
   }, []);
+
+  const ensureCameraReady = useCallback(async () => {
+    // make sure webcam stream is live before capturing registration samples
+    try {
+      await startCamera();
+    } catch (err) {
+      console.error("ensureCameraReady failed", err);
+      setStatus("Please allow camera access to register a worker.");
+      throw err;
+    }
+  }, [startCamera]);
 
   const stopMonitoring = useCallback(() => {
     if (intervalRef.current !== null) {
@@ -392,7 +397,7 @@ const LiveMonitoring: React.FC = () => {
     if (intervalRef.current !== null) {
       window.clearInterval(intervalRef.current);
     }
-    intervalRef.current = window.setInterval(captureAndSendFrame, 4000);
+    intervalRef.current = window.setInterval(captureAndSendFrame, 3000);
   }, [captureAndSendFrame, startCamera]);
 
   const startCctvMonitoring = useCallback(async () => {
@@ -406,7 +411,7 @@ const LiveMonitoring: React.FC = () => {
       window.clearInterval(intervalRef.current);
     }
     await pollCctvFrame();
-    intervalRef.current = window.setInterval(pollCctvFrame, 4000);
+    intervalRef.current = window.setInterval(pollCctvFrame, 3000);
   }, [pollCctvFrame, selectedCameraId]);
 
   const handleStart = useCallback(async () => {
@@ -487,7 +492,7 @@ const LiveMonitoring: React.FC = () => {
     if (!autoRefreshLogs) return;
     const id = window.setInterval(() => {
       void fetchLogs();
-    }, 4000);
+    }, 3000);
     return () => window.clearInterval(id);
   }, [fetchLogs, autoRefreshLogs, selectedLogFile]);
 
@@ -547,6 +552,7 @@ const LiveMonitoring: React.FC = () => {
     const scaleY = overlay.height / srcH;
 
     const faces = result.faces || [];
+    let unknownCounter = 1;
     faces.forEach((f) => {
       const x = Math.round(f.x * scaleX);
       const y = Math.round(f.y * scaleY);
@@ -568,8 +574,13 @@ const LiveMonitoring: React.FC = () => {
       ctx.fillRect(x, y, w, h);
       ctx.strokeRect(x, y, w, h);
 
-      const label =
-        f.name && f.name.toLowerCase() !== "unknown" ? f.name : "Unknown";
+      let label: string;
+      if (recognized) {
+        label = f.name!;
+      } else {
+        label = `Unknown ${unknownCounter}`;
+        unknownCounter += 1;
+      }
       ctx.font = "14px system-ui, sans-serif";
       ctx.textBaseline = "top";
       const textW = ctx.measureText(label).width + 10;
@@ -597,13 +608,24 @@ const LiveMonitoring: React.FC = () => {
     }
   }, [mode, result, cctvFrameUrl]);
 
-  // triple-click handler on overlay canvas to register unknown
-  const clickCountRef = useRef(0);
-  const clickTimerRef = useRef<number | null>(null);
-
   const getCurrentFrameBlob = useCallback(async (): Promise<Blob | null> => {
     if (mode === "webcam") {
-      return lastFrameBlobRef.current;
+      const video = videoRef.current;
+      if (video && video.videoWidth && video.videoHeight) {
+        const off = document.createElement("canvas");
+        const targetWidth = 640;
+        const scale = targetWidth / video.videoWidth;
+        off.width = targetWidth;
+        off.height = Math.round(video.videoHeight * scale);
+        const ctx = off.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(video, 0, 0, off.width, off.height);
+          return await new Promise((resolve) =>
+            off.toBlob((b) => resolve(b), "image/jpeg", 0.8)
+          );
+        }
+      }
+      if (lastFrameBlobRef.current) return lastFrameBlobRef.current;
     }
     const url = lastFrameImageUrlRef.current;
     if (!url) return null;
@@ -616,92 +638,124 @@ const LiveMonitoring: React.FC = () => {
     }
   }, [mode]);
 
-  const handleOverlayClick = async () => {
-    clickCountRef.current += 1;
-    if (clickTimerRef.current) {
-      window.clearTimeout(clickTimerRef.current);
+  const stopRegistrationCapture = useCallback(() => {
+    if (regIntervalRef.current !== null) {
+      window.clearInterval(regIntervalRef.current);
+      regIntervalRef.current = null;
     }
-    clickTimerRef.current = window.setTimeout(() => {
-      clickCountRef.current = 0;
-      clickTimerRef.current = null;
-    }, 800);
+  }, []);
 
-    if (clickCountRef.current >= 3) {
-      clickCountRef.current = 0;
-      if (clickTimerRef.current) {
-        window.clearTimeout(clickTimerRef.current);
-        clickTimerRef.current = null;
-      }
+  const closeRegistration = useCallback(() => {
+    stopRegistrationCapture();
+    setRegisterModalOpen(false);
+    setRegMode("off");
+    setRegSessionId(null);
+    setRegInstruction("");
+    setRegCollected(0);
+    setRegTarget(0);
+  }, [stopRegistrationCapture]);
 
-      const unknownFace = result?.faces?.find(
-        (f) => !f.name || f.name.toLowerCase() === "unknown"
-      );
+  const captureRegistrationSample = useCallback(async () => {
+    if (regMode !== "capture" || !regSessionId) return;
+    try {
+      await ensureCameraReady();
+    } catch {
+      return;
+    }
+    // require that we still see at least one face; otherwise skip this tick
+    const hasFace =
+      (result?.faces && result.faces.length > 0) ||
+      (result?.person && result.person.name && result.person.name !== "Unknown");
+    if (!hasFace) {
+      setStatus("Hold your face in view for capture…");
+      return;
+    }
+    const blob = await getCurrentFrameBlob();
+    if (!blob) return;
 
-      if (!unknownFace || !lastFrameSizeRef.current) {
-        setStatus("No unknown face detected in the latest frame.");
+    const formData = new FormData();
+    formData.append("session_id", regSessionId);
+    formData.append("pose_hint", "front");
+    formData.append("frame", blob, "frame.jpg");
+
+    try {
+      const resp = await fetch(`${LIVE_API_BASE}/api/workers/register/capture`, {
+        method: "POST",
+        body: formData,
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        setStatus(`Registration capture error: ${data?.error ?? resp.statusText}`);
         return;
       }
+      setRegCollected(data?.collected ?? regCollected);
+      setRegTarget(data?.target ?? regTarget);
+      setRegInstruction(data?.next_instruction ?? "");
+      if (data?.status === "enough_samples") {
+        setRegMode("details");
+        stopRegistrationCapture();
+      }
+    } catch (err: any) {
+      setStatus(`Registration capture error: ${err?.message ?? "unknown"}`);
+    }
+  }, [getCurrentFrameBlob, regCollected, regMode, regSessionId, regTarget, stopRegistrationCapture]);
 
-      const frameBlob = await getCurrentFrameBlob();
-      if (!frameBlob) {
-        setStatus("No frame available to capture face.");
+  useEffect(() => {
+    if (registerModalOpen && regMode === "capture" && regSessionId) {
+      stopRegistrationCapture();
+      regIntervalRef.current = window.setInterval(() => {
+        void captureRegistrationSample();
+      }, 1200);
+      return stopRegistrationCapture;
+    }
+    stopRegistrationCapture();
+    return stopRegistrationCapture;
+  }, [captureRegistrationSample, regMode, regSessionId, registerModalOpen, stopRegistrationCapture]);
+
+  const startRegistration = useCallback(async () => {
+    // only start if an unknown face is currently visible
+    const unknownFace = result?.faces?.find(
+      (f) => !f.name || f.name.toLowerCase() === "unknown"
+    );
+    if (!unknownFace) {
+      setStatus("No unknown face detected in the current frame.");
+      return;
+    }
+    closeRegistration();
+    try {
+      if (mode !== "webcam") {
+        setMode("webcam");
+      }
+      await ensureCameraReady();
+      const res = await fetch(`${LIVE_API_BASE}/api/workers/register/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setStatus(data?.error ?? "Failed to start registration");
         return;
       }
-
-      try {
-        const cropped = await new Promise<Blob | null>((resolve) => {
-          const img = new Image();
-          const url = URL.createObjectURL(frameBlob);
-          img.onload = () => {
-            const off = document.createElement("canvas");
-            off.width = Math.max(1, Math.round(unknownFace.w));
-            off.height = Math.max(1, Math.round(unknownFace.h));
-            const octx = off.getContext("2d");
-            if (!octx) {
-              URL.revokeObjectURL(url);
-              resolve(null);
-              return;
-            }
-            octx.drawImage(
-              img,
-              unknownFace.x,
-              unknownFace.y,
-              unknownFace.w,
-              unknownFace.h,
-              0,
-              0,
-              off.width,
-              off.height
-            );
-            off.toBlob((b) => {
-              URL.revokeObjectURL(url);
-              resolve(b);
-            }, "image/jpeg", 0.9);
-          };
-          img.onerror = () => {
-            URL.revokeObjectURL(url);
-            resolve(null);
-          };
-          img.src = url;
-        });
-
-        setUnknownFaceBlob(cropped);
-        setRegisterModalOpen(true);
-      } catch (err) {
-        console.error(err);
-        setUnknownFaceBlob(frameBlob);
-        setRegisterModalOpen(true);
-      }
+      setRegSessionId(data.session_id);
+      setRegMode("capture");
+      setRegInstruction(data.next_instruction ?? "");
+      setRegCollected(0);
+      setRegTarget(data.target_samples ?? data.target ?? 0);
+      setRegisterModalOpen(true);
+      setStatus("Registration session started. Keep the unknown worker in view.");
+    } catch (err: any) {
+      setStatus(`Start registration failed: ${err?.message ?? "unknown error"}`);
     }
-  };
+  }, [closeRegistration, ensureCameraReady, mode, result]);
 
   const handleModalClose = () => {
-    setRegisterModalOpen(false);
-    setUnknownFaceBlob(null);
+    closeRegistration();
   };
 
   const handleRegistered = () => {
-    setUnknownFaceBlob(null);
+    closeRegistration();
+    setStatus("Worker enrolled; gallery will refresh shortly.");
   };
 
   const personLabel =
@@ -814,9 +868,15 @@ const renderModeToggle = (
               : `Polling cameras through ${LIVE_CAMERA_ENDPOINT}`}
           </p>
           {personLabel === "Unknown" && (
-            <p className="text-[11px] text-amber-600 mt-1">
-              Unknown person detected – triple-click on the video to register.
-            </p>
+            <div className="flex items-center gap-2 text-[11px] text-amber-700 mt-1">
+              <span>Unknown person detected.</span>
+              <button
+                onClick={startRegistration}
+                className="px-2 py-1 rounded-md border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+              >
+                Register this worker
+              </button>
+            </div>
           )}
         </div>
         <div className="flex flex-col gap-2">
@@ -870,8 +930,7 @@ const renderModeToggle = (
             <canvas ref={canvasRef} className="hidden" />
             <canvas
               ref={overlayRef}
-              className="absolute inset-0 pointer-events-auto"
-              onClick={handleOverlayClick}
+              className="absolute inset-0 pointer-events-none"
             />
             {result && (
               <div className="absolute top-3 left-3 bg-black/60 text-white text-sm px-2 py-1 rounded-md pointer-events-none">
@@ -982,8 +1041,12 @@ const renderModeToggle = (
       <WorkerRegisterModal
         open={registerModalOpen}
         onClose={handleModalClose}
-        faceBlob={unknownFaceBlob}
         onRegistered={handleRegistered}
+        sessionId={regSessionId}
+        mode={regMode === "capture" ? "capture" : regMode === "details" ? "details" : "off"}
+        instruction={regInstruction}
+        collected={regCollected}
+        target={regTarget}
       />
     </div>
   );

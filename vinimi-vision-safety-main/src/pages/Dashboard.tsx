@@ -6,14 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-  Users,
-  AlertTriangle,
-  Video,
-  Upload,
-  Search,
-  Shield,
-} from "lucide-react";
+import { Users, AlertTriangle, Video, Upload, Search, Shield } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { fetchRecentAlerts, RecentAlert } from "@/lib/api";
 
@@ -40,7 +33,6 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
 
-  // stats still mocked – you can wire these to APIs later
   const stats = {
     totalWorkers: 47,
     totalViolations: 23,
@@ -69,87 +61,40 @@ const Dashboard = () => {
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // later: navigate to workers page with query or call backend search
-    // navigate(`/workers?search=${encodeURIComponent(searchQuery)}`);
   };
-
-  const heroHighlights = [
-    {
-      label: "Helmet compliance",
-      value: "94%",
-      delta: "+3.2% vs last week",
-    },
-    {
-      label: "Unknown detections",
-      value: "6",
-      delta: "2 resolved in the last hour",
-    },
-    {
-      label: "Average response time",
-      value: "2m 14s",
-      delta: "Acknowledged alerts",
-    },
-    {
-      label: "Critical locations",
-      value: "3",
-      delta: "Need supervisor follow-up",
-    },
-  ];
-
-  const healthMetrics = [
-    {
-      title: "Live cameras",
-      value: "08 / 10 online",
-      detail: "All helmet zones covered",
-    },
-    {
-      title: "Worker gallery",
-      value: "312 embeddings",
-      detail: "Last sync 4 minutes ago",
-    },
-    {
-      title: "Edge services",
-      value: "5 nodes healthy",
-      detail: "Rajahmundry, Guntur, Navi Mumbai, Pune, Chennai",
-    },
-  ];
-
-  const complianceBreakdown = [
-    { label: "Helmet ON", value: 78, color: "bg-emerald-500" },
-    { label: "No helmet", value: 16, color: "bg-rose-500" },
-    { label: "Unknown", value: 6, color: "bg-amber-400" },
-  ];
 
   const statCards = [
     {
       title: "Total Workers",
       value: stats.totalWorkers,
       icon: Users,
-      textClass: "text-sky-400",
-      iconClass: "text-sky-400",
       onClick: () => navigate("/workers"),
       delay: 0.2,
-      subtitle: "Active on site",
+      subtitle: "Currently present in monitored EHS zones",
     },
     {
       title: "Total Violations",
       value: stats.totalViolations,
       icon: AlertTriangle,
-      textClass: "text-amber-400",
-      iconClass: "text-amber-400",
       onClick: () => navigate("/violations"),
       delay: 0.3,
-      subtitle: "Last 24 hours",
+      subtitle: "Last 24 hours (PPE & safety rules)",
     },
     {
-      title: "Active Alerts",
+      title: "Active Safety Alerts",
       value: stats.activeAlerts,
       icon: Shield,
-      textClass: "text-red-400",
-      iconClass: "text-red-400",
-      onClick: () => navigate("/workers"), // or /alerts later
+      onClick: () => navigate("/workers"),
       delay: 0.4,
       subtitle: "Requires attention",
+    },
+    {
+      title: "EHS Security Breach – Unknown Individual",
+      value: 2,
+      icon: Shield,
+      onClick: () => navigate("/violations"),
+      delay: 0.5,
+      subtitle: "Unknown individuals detected today",
     },
   ];
 
@@ -179,11 +124,11 @@ const Dashboard = () => {
         animate={{ opacity: 1 }}
         className="space-y-8"
       >
-        {/* Hero */}
+        {/* Hero (text + search) */}
         <motion.section
           initial={{ y: 30, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
-          className="grid gap-6 xl:grid-cols-[2.1fr,1fr]"
+          className="grid gap-6"
         >
           <div className="relative overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-[#eef2f7] to-[#f8fafc] shadow-lg">
             <div className="relative flex flex-col gap-8 p-8">
@@ -218,61 +163,12 @@ const Dashboard = () => {
                   </Button>
                 </form>
               </div>
-
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                {heroHighlights.map((item) => (
-                  <div
-                    key={item.label}
-                    className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow-md transition"
-                  >
-                    <p className="text-xs uppercase tracking-[0.3em] text-slate-500">
-                      {item.label}
-                    </p>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-3xl font-semibold text-slate-900">
-                        {item.value}
-                      </span>
-                      <span className="text-xs text-emerald-600">{item.delta}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
             </div>
           </div>
-
-          <Card className="bg-white border border-slate-200 shadow-sm">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.4em] text-slate-500">
-                    System health
-                  </p>
-                  <CardTitle className="text-xl text-slate-900">Edge & camera status</CardTitle>
-                </div>
-                <Badge variant="outline" className="text-emerald-700 border-emerald-200 bg-emerald-50">
-                  Operational
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {healthMetrics.map((metric) => (
-                <div
-                  key={metric.title}
-                  className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 shadow-[0_1px_2px_rgba(2,6,23,0.06)]"
-                >
-                  <p className="text-xs uppercase tracking-[0.3em] text-slate-500">
-                    {metric.title}
-                  </p>
-                  <p className="text-lg font-semibold text-slate-900">{metric.value}</p>
-                  <p className="text-xs text-slate-600">{metric.detail}</p>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
         </motion.section>
 
         {/* Stats cards */}
-        <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-3">
           {statCards.map((stat) => (
             <motion.div
               key={stat.title}
@@ -289,56 +185,19 @@ const Dashboard = () => {
                     {stat.title}
                   </CardTitle>
                   <div className="rounded-full bg-blue-50 p-2 text-blue-700 shadow-inner group-hover:scale-110 transition">
-                    <stat.icon className={`h-4 w-4 ${stat.iconClass.replace("text-", "text-")}`} />
+                    <stat.icon className="h-4 w-4" />
                   </div>
                 </CardHeader>
                 <CardContent>
                   <div className="text-4xl font-semibold text-slate-900">
                     {stat.value}
                   </div>
-                  <p className="text-xs text-slate-600">
-                    {stat.subtitle}
-                  </p>
+                  <p className="text-xs text-slate-600">{stat.subtitle}</p>
                 </CardContent>
               </Card>
             </motion.div>
           ))}
-          <motion.div
-            initial={{ y: 20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ delay: 0.45 }}
-          >
-            <Card className="border border-slate-200 bg-white shadow-sm">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm text-slate-800">
-                  Compliance mix
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex h-3 overflow-hidden rounded-full bg-slate-100">
-                  {complianceBreakdown.map((segment) => (
-                    <div
-                      key={segment.label}
-                      style={{ width: `${segment.value}%` }}
-                      className={`${segment.color}`}
-                    />
-                  ))}
-                </div>
-                <div className="grid grid-cols-3 gap-3 text-xs">
-                  {complianceBreakdown.map((segment) => (
-                    <div key={segment.label}>
-                      <p className="text-slate-600">{segment.label}</p>
-                      <p className="text-sm font-semibold text-slate-900">
-                        {segment.value}%
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
         </div>
-
 
         {/* Quick actions */}
         <div className="grid gap-4 md:grid-cols-2">
@@ -352,13 +211,13 @@ const Dashboard = () => {
               <Card className="overflow-hidden border border-slate-200 bg-white shadow-sm hover:shadow-md transition">
                 <Link to={action.path} className="block h-full">
                   <div className="flex h-full flex-col gap-4 p-6">
-                    <div
-                      className={`inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700`}
-                    >
+                    <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
                       <action.icon className="h-4 w-4" />
                       {action.title}
                     </div>
-                    <p className="text-sm text-slate-700">{action.description}</p>
+                    <p className="text-sm text-slate-700">
+                      {action.description}
+                    </p>
                     <div
                       className={`mt-auto h-1 w-24 rounded-full bg-gradient-to-r ${action.gradient}`}
                     />
@@ -430,7 +289,9 @@ const Dashboard = () => {
                         </div>
                         <div className="flex justify-end gap-2">
                           <Badge variant="destructive">Helmet Off</Badge>
-                          <Badge variant="outline">{alert.sms_status || "pending"}</Badge>
+                          <Badge variant="outline">
+                            {alert.sms_status || "pending"}
+                          </Badge>
                         </div>
                       </div>
                     </div>

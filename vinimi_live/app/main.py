@@ -25,10 +25,17 @@ import cv2
 import traceback
 import logging
 import json
+import os
+import base64
+import uuid
+import time
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
 from collections import deque
+import requests
+
+from .video.face_recognition_video import analyze_video_face_recognition
 
 from .db import (
     insert_worker,
@@ -61,6 +68,19 @@ from .alerts import (
 )
 
 settings = get_settings()
+def _env_flag(name: str, default: str = "true") -> bool:
+    return (os.getenv(name, default) or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+VLM_BASE = os.getenv("VLM_BASE", "https://router.huggingface.co/v1")
+_model_raw = os.getenv("VLM_MODEL", "Qwen/Qwen2.5-VL-7B-Instruct")
+VLM_MODEL = _model_raw.split("=", 1)[1] if _model_raw.lower().startswith("vlm_model=") else _model_raw
+VLM_TIMEOUT = float(os.getenv("VLM_TIMEOUT", "120"))
+VLM_ENABLED = _env_flag("VLM_ENABLED", "true")
+VLM_API_KEY = os.getenv("HF_API_KEY") or os.getenv("VLM_API_KEY")
+# Registration flow
+REG_TARGET_SAMPLES = int(os.getenv("REG_TARGET_SAMPLES", "7"))
+REG_SESSION_TIMEOUT = int(os.getenv("REG_SESSION_TIMEOUT", "120"))
 # where to store worker images
 MEDIA_ROOT = Path(settings.MEDIA_ROOT)
 MEDIA_ROOT.mkdir(parents=True, exist_ok=True)
@@ -118,8 +138,10 @@ def log_live_event(result: dict) -> None:
     try:
         person = result.get("person", {}) or {}
         ppe = result.get("ppe", {}) or {}
+        faces = result.get("faces") or []
         ts = datetime.utcnow().isoformat() + "Z"
-        record = {
+        records = []
+        records.append({
             "ts": ts,
             "name": person.get("name") or "Unknown",
             "worker_id": person.get("worker_id"),
@@ -128,10 +150,23 @@ def log_live_event(result: dict) -> None:
             "helmet_on": bool(ppe.get("helmet_on")),
             "is_unknown": not person.get("worker_id"),
             "similarity": person.get("similarity"),
-        }
+            "role": "primary",
+        })
+        for idx, face in enumerate(faces):
+            face_ppe = (face.get("ppe") or {})
+            records.append({
+                "ts": ts,
+                "name": face.get("name") or "Unknown",
+                "worker_id": face.get("worker_id"),
+                "helmet_on": face_ppe.get("helmet_on", ppe.get("helmet_on")),
+                "similarity": face.get("similarity"),
+                "face_index": idx,
+                "role": "face",
+            })
         day_file = LOGS_DIR / f"{ts[:10]}.log"
         with day_file.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(record, default=str) + "\n")
+            for rec in records:
+                f.write(json.dumps(_json_safe(rec), default=str) + "\n")
     except Exception as e:
         print("⚠️ log_live_event error:", e)
 
@@ -159,14 +194,28 @@ def log_detection_summary(source: str, result: dict) -> None:
     ppe = result.get("ppe", {}) or {}
     log_event(
         "detection",
-        {
+        _json_safe({
             "source": source,
             "worker_id": person.get("worker_id"),
             "name": person.get("name"),
             "helmet_on": ppe.get("helmet_on"),
             "camera_id": result.get("camera_id"),
-        },
+        }),
     )
+    for idx, face in enumerate(result.get("faces") or []):
+        face_ppe = (face.get("ppe") or {})
+        log_event(
+            "detection.face",
+            _json_safe({
+                "source": source,
+                "face_index": idx,
+                "worker_id": face.get("worker_id"),
+                "name": face.get("name"),
+                "helmet_on": face_ppe.get("helmet_on", ppe.get("helmet_on")),
+                "similarity": face.get("similarity"),
+                "camera_id": result.get("camera_id"),
+            }),
+        )
 
 
 def schedule_helmet_alert(
@@ -342,7 +391,7 @@ async def live_frame(
     # Schedule alerts if needed
     schedule_helmet_alert(background_tasks, frame, result, "live_frame")
 
-    return result
+    return _json_safe(result)
 
 
 @app.post("/api/alerts/test")
@@ -396,11 +445,211 @@ def send_test_sms(payload: AlertsTestPayload) -> dict:
 
 
 
+# In-memory registration sessions
+registration_sessions: dict[str, dict] = {}
+
 @app.get("/api/live/recent-alerts")
 def recent_alerts(limit: int = 20) -> list[dict]:
     """Return SMS alerts pulled from the recent alerts cache (file-backed)."""
     limit = max(1, min(limit, 200))
     return get_recent_alert_entries(limit)
+
+
+# ---------------- Guided Registration Endpoints -----------------
+
+
+@app.post("/api/workers/register/start")
+def register_start(payload: dict):
+    _prune_sessions()
+    sess = _new_session()
+    return {
+        "session_id": sess["session_id"],
+        "status": "collecting",
+        "next_instruction": "Face the camera directly and stay still.",
+        "target_samples": sess["target_samples"],
+    }
+
+
+def _extract_best_face(img_bgr: np.ndarray):
+    try:
+        faces = DeepFace.extract_faces(img_path=img_bgr, enforce_detection=False, detector_backend="opencv", align=False)
+    except Exception:
+        faces = []
+    if not faces:
+        return None
+    # pick largest
+    best = max(faces, key=lambda f: (f.get("facial_area") or {}).get("w", 0) * (f.get("facial_area") or {}).get("h", 0))
+    fa = best.get("facial_area") or {}
+    x, y, w, h = int(fa.get("x", 0)), int(fa.get("y", 0)), int(fa.get("w", 0)), int(fa.get("h", 0))
+    x = max(0, x); y = max(0, y)
+    crop = img_bgr[y:y+h, x:x+w].copy() if h > 0 and w > 0 else img_bgr
+    emb = best.get("embedding") or []
+    if not emb:
+        try:
+            rep = DeepFace.represent(img_path=crop, model_name="VGG-Face", enforce_detection=False)
+            emb = rep[0]["embedding"] if rep else []
+        except Exception:
+            emb = []
+    return crop, emb
+
+
+@app.post("/api/workers/register/capture")
+async def register_capture(session_id: str = Form(...), pose_hint: Optional[str] = Form(None), frame: UploadFile = File(...)):
+    sess = _get_session(session_id)
+    if not sess:
+        return JSONResponse(status_code=404, content={"error": "Session not found or expired"})
+    try:
+        data = await frame.read()
+        nparr = np.frombuffer(data, np.uint8)
+        img_bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img_bgr is None:
+            return JSONResponse(status_code=400, content={"error": "Could not decode image"})
+        res = _extract_best_face(img_bgr)
+        if not res:
+            return {
+                "status": "no_face",
+                "next_instruction": "We couldn’t see your face. Move closer and face the camera.",
+                "collected": len(sess["collected"]),
+                "target": sess["target_samples"],
+            }
+        crop, emb = res
+        if not emb:
+            return {
+                "status": "no_face",
+                "next_instruction": "Face not clear. Try again.",
+                "collected": len(sess["collected"]),
+                "target": sess["target_samples"],
+            }
+        emb_arr = np.asarray(emb, dtype=np.float32).reshape(-1)
+        _add_sample(sess, emb_arr.tolist(), pose_hint, crop)
+        if len(sess["collected"]) >= sess["target_samples"]:
+            return {
+                "status": "enough_samples",
+                "next_instruction": "Enough samples captured. Please confirm worker details.",
+                "collected": len(sess["collected"]),
+                "target": sess["target_samples"],
+            }
+        return {
+            "status": "collecting",
+            "next_instruction": "Turn slightly and hold still for another capture.",
+            "collected": len(sess["collected"]),
+            "target": sess["target_samples"],
+        }
+    except Exception as exc:
+        print("⚠️ [register_capture]", exc)
+        return JSONResponse(status_code=500, content={"error": "Capture failed"})
+
+
+@app.post("/api/workers/register/complete")
+async def register_complete(
+    session_id: str = Form(...),
+    name: str = Form(...),
+    phone: str = Form(""),
+    company_id: str = Form(""),
+    location_id: str = Form(""),
+):
+    sess = _get_session(session_id)
+    if not sess:
+        return JSONResponse(status_code=404, content={"error": "Session not found or expired"})
+    try:
+        if not sess.get("collected"):
+            return JSONResponse(status_code=400, content={"error": "No samples collected"})
+        embs = [np.asarray(s["embedding"], dtype=np.float32) for s in sess["collected"]]
+        agg = np.mean(embs, axis=0)
+        emb_csv = ",".join(str(float(x)) for x in agg)
+
+        # convert IDs safely
+        try:
+            company_id_int = int(company_id) if str(company_id).strip() else 0
+        except ValueError:
+            return JSONResponse(status_code=400, content={"error": "Invalid company_id"})
+        try:
+            location_id_int = int(location_id) if str(location_id).strip() else 0
+        except ValueError:
+            return JSONResponse(status_code=400, content={"error": "Invalid location_id"})
+
+        # save representative image
+        img_dir = MEDIA_ROOT / "registered"
+        img_dir.mkdir(parents=True, exist_ok=True)
+        img_path = img_dir / f"worker_{session_id}.jpg"
+        rep = sess["collected"][0].get("frame_bgr")
+        if rep is not None:
+            cv2.imwrite(str(img_path), rep)
+        filename = img_path.name
+
+        # append to embeddings CSV
+        csv_path = Path(settings.EMBEDDINGS_CSV)
+        row = {
+            "filename": filename,
+            "id": "",
+            "asset_id": session_id,
+            "location_id": location_id or "",
+            "company_id": company_id or "",
+            "capture_datetime": datetime.utcnow().isoformat(),
+            "name": name,
+            "worker_id": "",
+            "embedding": emb_csv,
+            "phone": phone,
+            "location": location_id or "",
+        }
+        import pandas as pd
+
+        try:
+            if csv_path.exists():
+                df = pd.read_csv(csv_path)
+                df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+            else:
+                df = pd.DataFrame([row])
+            df.to_csv(csv_path, index=False)
+        except Exception as exc:
+            print("⚠️ [register_complete] failed to write CSV:", exc)
+            return JSONResponse(status_code=500, content={"error": "Failed to save embedding"})
+
+        # also persist to database worker / image / embedding tables
+        try:
+            worker_id_db = insert_worker(
+                name=name,
+                phone=phone or "",
+                company_id=company_id_int,
+                location_id=location_id_int,
+            )
+            insert_worker_image(
+                worker_id=worker_id_db,
+                filename=filename,
+                location_id=location_id_int,
+                company_id=company_id_int,
+                name=name,
+                helmet_on=True,
+            )
+            insert_embedding(
+                worker_id=worker_id_db,
+                embedding=agg.tolist(),
+                filename=filename,
+                asset_id=session_id,
+                name=name,
+                location_id=location_id_int,
+                company_id=company_id_int,
+            )
+        except Exception as exc:
+            print("⚠️ [register_complete] DB append failed:", exc)
+            return JSONResponse(status_code=500, content={"error": "Failed to save worker to DB"})
+
+        # refresh gallery
+        try:
+            reload_gallery()
+        except Exception as exc:
+            print("⚠️ [register_complete] reload_gallery error:", exc)
+
+        registration_sessions.pop(session_id, None)
+        return {
+            "status": "ok",
+            "message": "Worker enrolled successfully.",
+            "worker_id": worker_id_db,
+        }
+    except Exception as exc:
+        print("⚠️ [register_complete]", exc)
+        return JSONResponse(status_code=500, content={"error": "Registration failed"})
+
 
 # --- Auth endpoints (simple token) ---
 def _hash_password(raw: str) -> str:
@@ -521,7 +770,7 @@ def _tail_json(path: Path, lines: int = 200) -> list[dict]:
         try:
             obj = json.loads(ln)
             if isinstance(obj, dict):
-                out.append(obj)
+                out.append(_json_safe(obj))
         except Exception:
             continue
     return out
@@ -645,7 +894,278 @@ async def detect_frame(frame: UploadFile = File(...)):
     except Exception as e:
         print("Error in /api/detect/frame:", e)
         return JSONResponse(status_code=500, content={"error": "Internal server error"})
-    
+
+
+def _resize_image_for_vlm(img_bgr: np.ndarray, max_dim: int = 512) -> bytes:
+    """
+    Downscale large images to keep VLM latency lower and responses more stable.
+    Returns JPEG bytes.
+    """
+    h, w = img_bgr.shape[:2]
+    scale = min(1.0, max_dim / max(h, w))
+    if scale < 1.0:
+        new_w, new_h = int(w * scale), int(h * scale)
+        img_bgr = cv2.resize(img_bgr, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    ok, buf = cv2.imencode(".jpg", img_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+    if not ok:
+        raise ValueError("Failed to encode image for VLM")
+    return buf.tobytes()
+
+
+def _json_safe(obj):
+    """
+    Recursively replace NaN/inf floats with None so JSON serialization never fails.
+    """
+    if isinstance(obj, float):
+        if not np.isfinite(obj):
+            return None
+        return obj
+    if isinstance(obj, (np.generic,)):
+        return _json_safe(obj.item())
+    if isinstance(obj, np.ndarray):
+        return _json_safe(obj.tolist())
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_json_safe(x) for x in obj]
+    return obj
+
+
+# ---------------- Registration Sessions -----------------
+
+
+
+
+
+def _prune_sessions():
+    now = time.time()
+    to_delete = []
+    for sid, sess in registration_sessions.items():
+        if now - sess.get("created_at", now) > REG_SESSION_TIMEOUT:
+            to_delete.append(sid)
+    for sid in to_delete:
+        registration_sessions.pop(sid, None)
+
+
+def _new_session(target_samples: int | None = None) -> dict:
+    sid = str(uuid.uuid4())
+    session = {
+        "session_id": sid,
+        "created_at": time.time(),
+        "target_samples": target_samples or REG_TARGET_SAMPLES,
+        "collected": [],
+    }
+    registration_sessions[sid] = session
+    return session
+
+
+def _get_session(session_id: str) -> Optional[dict]:
+    _prune_sessions()
+    return registration_sessions.get(session_id)
+
+
+def _add_sample(session: dict, embedding: list[float], pose: Optional[str], frame_bgr: np.ndarray):
+    session["collected"].append({"embedding": embedding, "pose": pose, "frame_bgr": frame_bgr})
+
+
+def _call_vlm(image_bytes: bytes, question: str, detector_facts: dict) -> str:
+    """
+    Call the configured vision LLM via HTTP (HF router, OpenAI-compatible chat).
+    """
+    if not VLM_ENABLED or not VLM_MODEL:
+        return ""
+    if not VLM_API_KEY or not VLM_BASE:
+        return ""
+    try:
+        b64_img = base64.b64encode(image_bytes).decode() if image_bytes else ""
+        content_text = question.strip() or "Describe the safety status in this image."
+        facts_json_pretty = json.dumps(detector_facts or {}, indent=2, default=str)[:4000]
+        facts_note = (
+            "Here are structured detection facts from VINIMI's detectors as JSON. "
+            "If a worker name/helmet flag is present, trust it."
+        )
+        user_content: list[dict[str, object]] = [
+            {
+                "type": "text",
+                "text": (
+                    f"{facts_note}\n```json\n{facts_json_pretty}\n```\n\n"
+                    f"User question: {content_text}\n"
+                    "Using BOTH the image and these JSON facts, answer. "
+                    "For identity/PPE, trust JSON over pixels."
+                ),
+            }
+        ]
+        if b64_img:
+            user_content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"}})
+
+        system_prompt = (
+            "You are VINIMI, an AI assistant for PPE (helmet) compliance and worker identification "
+            "on industrial/construction sites. You receive (1) an image frame and (2) structured JSON facts "
+            "from detectors (face recognition + helmet detector). Rules: "
+            "- For identity/PPE/company/location/similarity questions, ALWAYS trust the JSON facts over the raw pixels. "
+            "- For general description, use both the image and JSON. "
+            "- If is_unknown=true, do NOT invent a name; say the worker is unknown. "
+            "- Answer concisely in 1–3 sentences unless asked otherwise."
+        )
+
+        payload = {
+            "model": VLM_MODEL,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            "max_tokens": 256,
+        }
+        log_fields = {
+            "name": (detector_facts or {}).get("person", {}).get("name") or detector_facts.get("name"),
+            "helmet_on": (detector_facts or {}).get("ppe", {}).get("helmet_on") or detector_facts.get("helmet_on"),
+            "is_unknown": (detector_facts or {}).get("person", {}).get("worker_id") is None
+            if detector_facts
+            else None,
+        }
+        print(f"[VLM] calling model={VLM_MODEL} with detector facts: {log_fields}")
+        resp = requests.post(
+            f"{VLM_BASE.rstrip('/')}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {VLM_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            data=json.dumps(payload),
+            timeout=VLM_TIMEOUT,
+        )
+        if resp.status_code != 200:
+            print("⚠️ [VLM call failed] status", resp.status_code, resp.text)
+            return ""
+        data = resp.json()
+        choices = data.get("choices") or []
+        if not choices:
+            return ""
+        return (choices[0].get("message") or {}).get("content") or ""
+    except Exception as exc:
+        print("⚠️ [VLM call failed]:", exc)
+        return ""
+
+
+@app.post("/api/ask-vlm")
+async def ask_vlm(question: str = Form(""), frame: UploadFile | None = File(None)):
+    """
+    Analyze an uploaded frame (helmet + face recognition) and, if available,
+    ask a local Ollama vision model (VLM) to answer the user's question.
+    """
+    try:
+        analysis: dict = {}
+        img_bytes: bytes | None = None
+
+        is_video = False
+        video_facts = None
+
+        if frame is not None:
+            data = await frame.read()
+            content_type = frame.content_type or ""
+            if content_type.startswith("video/"):
+                is_video = True
+                videos_dir = MEDIA_ROOT / "videos"
+                videos_dir.mkdir(parents=True, exist_ok=True)
+                filename = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{frame.filename}"
+                video_path = videos_dir / filename
+                with open(video_path, "wb") as f:
+                    f.write(data)
+
+                try:
+                    video_result = analyze_video_face_recognition(
+                        str(video_path),
+                        n_segments=5,
+                        similarity_threshold=settings.FACE_SIM_THRESHOLD,
+                        save_annotated=False,
+                        media_root=MEDIA_ROOT,
+                        sample_frames=10,
+                        embeddings_csv_path=settings.EMBEDDINGS_CSV,
+                    )
+                    video_facts = {
+                        "mode": "video",
+                        "majority": video_result.get("majority"),
+                        "segments": video_result.get("segments"),
+                        "annotated_video_url": video_result.get("annotated_video_url"),
+                        "video_url": f"{settings.MEDIA_BASE_URL}/videos/{video_path.name}",
+                        "snapshot_url": video_result.get("snapshot_url"),
+                    }
+                    majority = video_result.get("majority") or {}
+                    rep_frame = video_result.get("representative_frame")
+                    if rep_frame is not None:
+                        try:
+                            img_bytes = _resize_image_for_vlm(rep_frame)
+                        except Exception:
+                            img_bytes = None
+                    else:
+                        img_bytes = None
+
+                    analysis = {"video_facts": video_facts}
+                    maj_name = majority.get("name")
+                    if maj_name and maj_name != "Unknown":
+                        analysis["person"] = {
+                            "name": maj_name,
+                            "worker_id": None,
+                            "similarity": majority.get("similarity"),
+                            "location": majority.get("location"),
+                            "helmet_on": majority.get("helmet_on"),
+                        }
+                except Exception as exc:
+                    print("⚠️ [video analyze error]:", exc)
+                    analysis = {"video_facts": {"error": str(exc)}}
+            else:
+                nparr = np.frombuffer(data, np.uint8)
+                img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                if img is None:
+                    return JSONResponse(status_code=400, content={"error": "Could not decode image"})
+
+                analysis = analyze_frame_bgr(img)
+                try:
+                    img_bytes = _resize_image_for_vlm(img)
+                except Exception:
+                    img_bytes = data  # fallback if resize fails
+
+        answer = ""
+        if VLM_ENABLED and VLM_MODEL and img_bytes is not None:
+            answer = _call_vlm(img_bytes or b"", question or "", analysis)
+        # If the model is disabled or punts, fall back to deterministic facts (images only)
+        if not is_video:
+            person_name = (analysis.get("person") or {}).get("name") or "Unknown"
+            helmet_flag = (analysis.get("ppe") or {}).get("helmet_on")
+            if (not answer or "not enough visual detail" in answer.lower()) and person_name != "Unknown":
+                sim = (analysis.get("person") or {}).get("similarity")
+                sim_txt = f" (similarity {sim:.2f})" if sim is not None else ""
+                helmet_txt = (
+                    " Helmet on." if helmet_flag else " Helmet off."
+                    if helmet_flag is not None else ""
+                )
+                answer = f"Detected worker: {person_name}{sim_txt}.{helmet_txt}".strip()
+        if not answer:
+            if is_video and video_facts:
+                maj = (video_facts.get("majority") or {})
+                name = maj.get("name") or "Unknown"
+                helmet_flag = maj.get("helmet_on")
+                helmet_txt = (
+                    "helmet on" if helmet_flag else "helmet off" if helmet_flag is not None else "helmet status unknown"
+                )
+                answer = f"Video analysis: detected worker {name} ({helmet_txt})."
+            else:
+                person_name = (analysis.get("person") or {}).get("name") or "Unknown"
+                helmet_flag = (analysis.get("ppe") or {}).get("helmet_on")
+                helmet_txt = (
+                    "Helmet on" if helmet_flag else "Helmet off" if helmet_flag is not None else "Helmet status unknown"
+                )
+                answer = f"Detected worker: {person_name}. {helmet_txt}."
+        resp = {"answer": answer, "analysis": _json_safe(analysis)}
+        if is_video:
+            resp["video_facts"] = _json_safe(video_facts or {})
+            snap = (video_facts or {}).get("snapshot_url")
+            if snap:
+                resp["analysis"] = {**resp["analysis"], "image_url": snap}
+        return resp
+    except Exception as e:
+        print("Error in /api/ask-vlm:", e)
+        return JSONResponse(status_code=500, content={"error": "Internal server error"})
+
 # app/main.py
 
 @app.get("/api/workers")

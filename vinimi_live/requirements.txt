@@ -19,3 +19,4 @@ python-dateutil
 
 phonenumbers==8.13.45
 twilio==9.2.3
+requests>=2.32.3
