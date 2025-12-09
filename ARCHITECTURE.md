@@ -2,12 +2,13 @@
 
 ## System Overview
 
-**VINIMI** is an AI-powered workplace safety monitoring system with real-time face detection, worker recognition, and safety violation tracking. The architecture consists of three main layers:
+**VINIMI** is an advanced AI-powered workplace safety monitoring system with real-time face detection, worker recognition, safety violation tracking, and Vision Language Model (VLM) integration. The architecture consists of five main layers:
 
 1. **Frontend** (React + Vite)
 2. **Backend** (FastAPI)
-3. **Database** (MySQL)
-4. **AI/ML Models** (YOLO, DeepFace)
+3. **AI/ML Services** (YOLO, DeepFace, Qwen VLM)
+4. **Database** (MySQL)
+5. **Video Processing** (Video face recognition module)
 
 ---
 
@@ -17,66 +18,109 @@
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                          CLIENT BROWSER (React/Vite)                        │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  Home | Dashboard | Workers | Live Monitoring | Violations | Recent Alerts │
+│ Home | Dashboard | Workers | Live Monitoring | Ask VLM | Violations | Alerts│
 │                                                                              │
 │  ├── Authentication (Login/Signup)                                          │
 │  ├── Real-time Camera Feed Streaming                                       │
+│  ├── VLM-powered Image/Video Analysis (Ask VLM page)                       │
 │  ├── Worker Management & Details                                           │
+│  ├── Multi-sample Worker Registration                                      │
 │  ├── Violation History & Reports                                           │
 │  └── Settings & Profile Management                                         │
 └──────────────────────────────────┬──────────────────────────────────────────┘
                                    │
-                    HTTP/REST API + WebSocket
+                    HTTP/REST API + FormData
                          (Port 8001)
                                    │
          ┌─────────────────────────┴──────────────────────────┐
          │                                                     │
-┌────────▼────────────────────────────────────────┐   ┌──────▼──────────┐
-│         FastAPI Backend (uvicorn)               │   │   Static Files  │
-│                                                 │   │   (/media/...)  │
-│  ┌────────────────────────────────────────┐    │   └─────────────────┘
-│  │ Core API Endpoints                     │    │
-│  │ ├── /auth/* (signup, login)            │    │
-│  │ ├── /api/workers/* (CRUD)              │    │
-│  │ ├── /api/live/* (live frame process)   │    │
-│  │ ├── /api/detect/* (face detection)     │    │
-│  │ ├── /api/violations (list violations)  │    │
-│  │ ├── /api/alerts/* (SMS alerts)         │    │
-│  │ └── /api/logs/* (log streaming)        │    │
-│  └────────────────────────────────────────┘    │
-│                                                 │
-│  ┌────────────────────────────────────────┐    │
-│  │ AI/ML Services                         │    │
-│  │ ├── YOLO v8 (Helmet Detection)         │    │
-│  │ ├── DeepFace (Face Recognition)        │    │
-│  │ └── Face Gallery (Vector Search)       │    │
-│  └────────────────────────────────────────┘    │
-│                                                 │
-│  ┌────────────────────────────────────────┐    │
-│  │ Background Tasks                       │    │
-│  │ ├── SMS Alert Sending (Twilio)         │    │
-│  │ ├── Violation Recording                │    │
-│  │ ├── Frame Logging                      │    │
-│  │ └── Image Saving                       │    │
-│  └────────────────────────────────────────┘    │
-└────────────────────┬───────────────────────────┘
+┌────────▼────────────────────────────────────────────────────┐
+│         FastAPI Backend (uvicorn)                           │
+│                                                             │
+│  ┌────────────────────────────────────────────────────┐    │
+│  │ Core API Endpoints (25+ routes)                    │    │
+│  │ ├── /auth/* (signup, login)                        │    │
+│  │ ├── /api/manager/* (auth, profile)                 │    │
+│  │ ├── /api/workers/* (list, get, register)           │    │
+│  │ ├── /api/workers/register/* (start, capture, complete) │
+│  │ ├── /api/live/* (live frame process, alerts)       │    │
+│  │ ├── /api/detect/* (face detection, VLM analysis)   │    │
+│  │ ├── /api/ask-vlm/* (VLM image/video analysis)      │    │
+│  │ ├── /api/violations (list violations)              │    │
+│  │ ├── /api/alerts/* (SMS alerts, test)               │    │
+│  │ ├── /api/logs/* (log streaming, PDF export)        │    │
+│  │ └── /health (health check)                         │    │
+│  └────────────────────────────────────────────────────┘    │
+│                                                             │
+│  ┌────────────────────────────────────────────────────┐    │
+│  │ AI/ML Services                                     │    │
+│  │ ├── YOLO v8 (Helmet Detection)                     │    │
+│  │ ├── DeepFace (Face Recognition + Embedding)        │    │
+│  │ ├── Face Gallery (Vector Search, in-memory cache)  │    │
+│  │ └── Qwen VLM (Vision Language Model via HF API)   │    │
+│  └────────────────────────────────────────────────────┘    │
+│                                                             │
+│  ┌────────────────────────────────────────────────────┐    │
+│  │ Video Processing Module                            │    │
+│  │ ├── analyze_video_face_recognition()              │    │
+│  │ ├── Frame sampling & segmentation                 │    │
+│  │ ├── Multi-frame face recognition voting           │    │
+│  │ ├── Annotated video generation                    │    │
+│  │ └── Representative frame extraction               │    │
+│  └────────────────────────────────────────────────────┘    │
+│                                                             │
+│  ┌────────────────────────────────────────────────────┐    │
+│  │ Registration Session Management                    │    │
+│  │ ├── Multi-sample collection (7 poses by default)   │    │
+│  │ ├── Face extraction & embedding computation        │    │
+│  │ ├── Session timeout handling (120s)                │    │
+│  │ ├── Average embedding aggregation                  │    │
+│  │ └── Dual DB + CSV persistence                      │    │
+│  └────────────────────────────────────────────────────┘    │
+│                                                             │
+│  ┌────────────────────────────────────────────────────┐    │
+│  │ Background Tasks                                   │    │
+│  │ ├── SMS Alert Sending (Twilio + cooldown)          │    │
+│  │ ├── Violation Recording & Snapshots                │    │
+│  │ ├── Event Logging (JSON per-day files)             │    │
+│  │ └── Gallery Reloading                              │    │
+│  └────────────────────────────────────────────────────┘    │
+│                                                             │
+│  ┌────────────────────────────────────────────────────┐    │
+│  │ VLM Integration                                    │    │
+│  │ ├── Qwen/Qwen2.5-VL-7B-Instruct via HuggingFace   │    │
+│  │ ├── Image resizing for lower latency              │    │
+│  │ ├── Structured detector facts injection            │    │
+│  │ ├── Image + JSON reasoning                         │    │
+│  │ └── Configurable timeout (120s default)            │    │
+│  └────────────────────────────────────────────────────┘    │
+│                                                             │
+│  ┌────────────────────────────────────────────────────┐    │
+│  │ Static File Serving                                │    │
+│  │ └── /media/* (images, videos, violation snapshots) │    │
+│  └────────────────────────────────────────────────────┘    │
+└────────────────────────┬───────────────────────────────────┘
                      │
        MySQL Connection (Port 3306)
                      │
-         ┌───────────▼───────────┐
-         │   MySQL Database      │
-         │  (vinimi_local)       │
-         │                       │
-         │  Tables:              │
-         │  ├── company          │
-         │  ├── location         │
-         │  ├── manager          │
-         │  ├── worker           │
-         │  ├── embeddings       │
-         │  ├── worker_image     │
-         │  ├── violation        │
-         │  └── alerts           │
-         └───────────────────────┘
+         ┌───────────▼───────────────────────┐
+         │   MySQL Database (vinimi_local)   │
+         │                                   │
+         │  Tables:                          │
+         │  ├── company (organizations)      │
+         │  ├── location (physical sites)    │
+         │  ├── manager (portal users)       │
+         │  ├── worker (employees)           │
+         │  ├── embeddings (face vectors)    │
+         │  ├── worker_image (face photos)   │
+         │  ├── violation (safety breaches)  │
+         │  └── alerts (SMS history)         │
+         └───────────────────────────────────┘
+
+External Services:
+├── Twilio (SMS alerts)
+├── HuggingFace (Qwen VLM API)
+└── File System (worker images, logs, violations)
 ```
 
 ---
@@ -167,7 +211,7 @@ Display Result (Card, Toast, etc.)
 ```
 vinimi_live/
 ├── app/
-│   ├── main.py                  # FastAPI app + all routes
+│   ├── main.py                  # FastAPI app + 25+ routes
 │   ├── config.py                # Pydantic settings
 │   ├── db.py                    # MySQL connection & queries
 │   ├── detection.py             # YOLO + DeepFace inference
@@ -176,7 +220,14 @@ vinimi_live/
 │   ├── worker_utils.py          # Worker helper functions
 │   ├── inspect_gcp_db.py        # GCP inspection (optional)
 │   ├── __init__.py
-│   └── live.html                # Live monitoring HTML template
+│   │
+│   └── video/
+│       └── face_recognition_video.py  # Video frame analysis
+│           ├── Multi-frame face recognition
+│           ├── Frame segmentation & sampling
+│           ├── Voting mechanism for worker ID
+│           ├── Annotated video generation
+│           └── Representative frame extraction
 │
 ├── requirements.txt             # Python dependencies
 ├── vinimi_live_still.py         # Standalone detection script
@@ -185,34 +236,68 @@ vinimi_live/
 ├── logs/                        # Live event logs (rolling)
 └── worker_images/               # Worker face images
     ├── violations/
+    ├── registered/
     ├── worker_17/
     └── worker_18/
 ```
 
-### Backend API Endpoints
+### New Features & Endpoints (v2.0+)
+
+**Multi-Sample Worker Registration Flow:**
+- `POST /api/workers/register/start` - Create registration session (120s timeout)
+- `POST /api/workers/register/capture` - Capture face sample with pose hint (7 samples default)
+- `POST /api/workers/register/complete` - Finalize worker with aggregated embedding
+
+**Vision Language Model (VLM) Integration:**
+- `POST /api/ask-vlm` - Analyze image/video with Qwen VLM
+  - Supports image and video uploads
+  - Injects detector facts (helmet status, worker identity, similarity)
+  - Generates reasoning using both image and JSON facts
+  - Returns worker info, helmet status, VLM analysis
+
+**Video Face Recognition:**
+- Integrated video analysis module
+- Frame sampling (configurable, default 10 frames)
+- Multi-frame face recognition voting
+- Segment-level analysis
+- Annotated video output with bboxes and labels
+- Representative frame selection
+
+### Backend API Endpoints (25+ routes)
 
 ```
-Authentication
+Authentication & Manager
   POST /auth/signup              - Register new manager
   POST /auth/login               - Manager login
-  POST /auth/logout              - Logout
+  POST /api/manager/signup       - Alternative signup
+  POST /api/manager/login        - Alternative login
+  GET  /api/manager/{id}         - Get manager profile
+  PUT  /api/manager/{id}         - Update manager profile
 
-Worker Management
+Worker Management (Classic)
   GET  /api/workers              - List all workers
   GET  /api/workers/{id}         - Get worker details
-  POST /api/workers/register     - Register new worker (with face)
   GET  /api/workers/{id}/media   - Get worker images
   GET  /api/workers/{id}/violations - Get worker violations
 
-Face Detection & Analysis
-  POST /api/detect/frame         - Single frame detection
+Worker Registration (Multi-Sample Flow - NEW)
+  POST /api/workers/register/start    - Start registration session
+  POST /api/workers/register/capture  - Capture face sample (poses)
+  POST /api/workers/register/complete - Finalize & save worker
+
+Live Detection & Monitoring
   POST /api/live/frame           - Live stream frame processing
-  GET  /api/live/recent-alerts   - Get recent alerts
+  GET  /api/live/recent-alerts   - Get recent violation alerts
+
+Face Detection & Analysis
+  POST /api/detect/frame         - Single frame detection (returns helmet + face data)
+  POST /api/ask-vlm              - VLM-powered image/video analysis (NEW)
+                                 - Accepts: image + question OR video
+                                 - Returns: worker info, helmet status, VLM reasoning
 
 Violations & Alerts
   GET  /api/violations           - List all violations
   POST /api/alerts/test          - Send test SMS alert
-  GET  /api/alerts/summary       - Alert summary
 
 Logs & Downloads
   GET  /api/logs/list            - List log files
@@ -220,10 +305,6 @@ Logs & Downloads
   GET  /api/logs/today           - Today's log text
   GET  /api/logs/today.pdf       - Today's log as PDF
   GET  /api/logs/download        - Download log as CSV/JSON
-
-Manager Profile
-  GET  /api/manager/{id}         - Get manager info
-  PUT  /api/manager/{id}         - Update manager
 
 Health & Status
   GET  /health                   - Health check
@@ -832,9 +913,21 @@ VINIMI is a **full-stack AI safety monitoring system** with:
 - ✅ Real-time face detection & recognition
 - ✅ Helmet compliance checking
 - ✅ SMS alert notifications
+- ✅ Multi-sample worker registration with face aggregation (NEW)
+- ✅ Vision Language Model (Qwen VLM) integration (NEW)
+- ✅ Video frame analysis and multi-frame voting (NEW)
 - ✅ Worker management & registration
 - ✅ Violation logging & analytics
 - ✅ Responsive web dashboard
-- ✅ Extensible API
+- ✅ Extensible API (25+ endpoints)
+
+**NEW Features in v2.0+:**
+1. **Multi-Sample Registration**: Collect 7+ face samples at different poses, aggregate embeddings for better accuracy
+2. **VLM Integration**: Ask Qwen/Qwen2.5-VL-7B-Instruct questions about images/videos with structured detector facts
+3. **Video Analysis**: Frame sampling, multi-frame recognition voting, annotated video output
+4. **Session Management**: Registration session timeouts, automatic cleanup
+5. **Dual Persistence**: Both MySQL and CSV-backed embedding storage
+6. **Image Resizing**: Automatic VLM input optimization for lower latency
 
 The architecture is modular, scalable, and ready for enterprise deployment with minimal changes!
+
