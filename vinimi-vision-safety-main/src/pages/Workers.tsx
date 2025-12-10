@@ -70,7 +70,7 @@ export default function WorkersPage() {
           phone: w.phone,
           location: w.location_name,
           joinedAt: w.joined_at,
-          violations: 0, // TODO: replace with real violations count
+          violations: w.violation_count ?? (w.violations ? w.violations.length : 0) ?? 0,
           companyName: w.company_name,
         }));
 

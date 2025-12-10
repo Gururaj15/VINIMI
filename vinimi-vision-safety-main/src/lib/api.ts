@@ -72,6 +72,7 @@ export interface WorkerApi {
   location_name: string;
   images?: WorkerImage[];
   violations?: WorkerViolation[];
+   violation_count?: number;
 }
 
 export async function fetchWorkers(): Promise<WorkerApi[]> {
@@ -87,7 +88,26 @@ export async function fetchWorkerMedia(workerId: number): Promise<WorkerImage[]>
 }
 
 export async function fetchWorkerViolations(workerId: number): Promise<WorkerViolation[]> {
-  return get<WorkerViolation[]>(`/api/workers/${workerId}/violations`);
+  const raw = await get<any[]>(`/api/workers/${workerId}/violations`);
+  return raw.map((r) => ({
+    id: r.id ?? r.violation_id ?? Math.random(),
+    timestamp: r.timestamp ?? r.detected_at ?? "",
+    location_name:
+      r.location_name ?? r.location ?? r.details?.location_name ?? undefined,
+    reason:
+      r.reason ??
+      r.details?.reason ??
+      (r.sms_status === "helmet_off" ? "Helmet Off" : "Safety Violation"),
+    severity:
+      (r.severity as any) ||
+      (r.details?.severity as any) ||
+      (r.sms_status === "helmet_off" ? "high" : "medium"),
+    image_url:
+      r.image_url ??
+      r.frame_path ??
+      (r.details?.frame_url as string | undefined) ??
+      undefined,
+  })) as WorkerViolation[];
 }
 
 export type CameraStatus = "online" | "offline" | "error" | "pending";

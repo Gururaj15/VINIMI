@@ -21,6 +21,7 @@ from io import StringIO, BytesIO
 from fastapi.responses import StreamingResponse
 
 import numpy as np
+import pandas as pd
 import cv2
 import traceback
 import logging
@@ -167,6 +168,24 @@ def log_live_event(result: dict) -> None:
         with day_file.open("a", encoding="utf-8") as f:
             for rec in records:
                 f.write(json.dumps(_json_safe(rec), default=str) + "\n")
+
+        # Also persist helmet-off events into violation table so UI stays in sync with live logs
+        for rec in records:
+            if rec.get("helmet_on") is False:
+                try:
+                    record_violation(
+                        worker_id=rec.get("worker_id"),
+                        phone=None,
+                        frame_path=None,
+                        sms_sid=None,
+                        sms_status="detected",
+                        details={"role": rec.get("role"), "similarity": rec.get("similarity")},
+                        worker_name=rec.get("name"),
+                        location_id=rec.get("location_id"),
+                        location_name=rec.get("location_name"),
+                    )
+                except Exception as exc:
+                    print("⚠️ [log_live_event] failed to record violation:", exc)
     except Exception as e:
         print("⚠️ log_live_event error:", e)
 
@@ -605,6 +624,13 @@ async def register_complete(
             print("⚠️ [register_complete] failed to write CSV:", exc)
             return JSONResponse(status_code=500, content={"error": "Failed to save embedding"})
 
+        # rebuild NPY to keep gallery fast
+        try:
+            npy_path = Path(settings.EMBEDDINGS_NPY)
+            _rebuild_embeddings_npy(csv_path, npy_path)
+        except Exception as exc:
+            print("⚠️ [register_complete] rebuild npy failed:", exc)
+
         # also persist to database worker / image / embedding tables
         try:
             worker_id_db = insert_worker(
@@ -877,7 +903,27 @@ def api_logs_download(file: Optional[str] = None, format: str = "csv"):
 def api_violations(limit: int = 200) -> list[dict]:
     """Return the latest helmet violations regardless of SMS status."""
     limit = max(1, min(limit, 500))
-    return list_violations(limit=limit, sms_only=False)
+    rows = list_violations(limit=limit, sms_only=False)
+    # Fallback: if DB is empty, surface recent alerts cache so UI shows newest events
+    if not rows:
+        recent = get_recent_alert_entries(limit)
+        for r in recent:
+            rows.append(
+                {
+                    "id": r.get("id"),
+                    "worker_id": r.get("worker_id"),
+                    "worker_name": r.get("worker_name") or "Unknown",
+                    "phone": r.get("phone"),
+                    "location_id": r.get("location_id"),
+                    "location_name": r.get("location_name") or "Unknown location",
+                    "timestamp": r.get("timestamp"),
+                    "sms_status": r.get("sms_status"),
+                    "sms_sid": r.get("sms_sid"),
+                    "frame_path": r.get("frame_path"),
+                    "details": r.get("details"),
+                }
+            )
+    return rows
 
 
 @app.post("/api/detect/frame")
@@ -929,6 +975,37 @@ def _json_safe(obj):
     if isinstance(obj, list):
         return [_json_safe(x) for x in obj]
     return obj
+
+
+def _rebuild_embeddings_npy(csv_path: Path, npy_path: Path) -> None:
+    """
+    Keep embeddings_matrix.npy in sync with the CSV after new registrations.
+    """
+    try:
+        if not csv_path.exists():
+            return
+        df = pd.read_csv(csv_path)
+        if "embedding" not in df.columns:
+            return
+        embeddings = []
+        max_len = 0
+        for val in df["embedding"]:
+            arr = np.fromstring(str(val), sep=",", dtype=np.float32)
+            max_len = max(max_len, len(arr))
+            embeddings.append(arr)
+        if not embeddings or max_len == 0:
+            return
+        padded = []
+        for arr in embeddings:
+            if len(arr) < max_len:
+                arr = np.pad(arr, (0, max_len - len(arr)), constant_values=0)
+            padded.append(arr)
+        mat = np.vstack(padded).astype(np.float32)
+        npy_path.parent.mkdir(parents=True, exist_ok=True)
+        np.save(npy_path, mat)
+        print(f"✅ rebuilt embeddings NPY {npy_path} shape={mat.shape}")
+    except Exception as exc:
+        print("⚠️ failed to rebuild embeddings NPY:", exc)
 
 
 # ---------------- Registration Sessions -----------------
@@ -1177,6 +1254,21 @@ def list_workers() -> list[dict]:
     types you used on the frontend.
     """
     workers_raw = fetch_workers_basic()
+    # fetch violation counts once
+    try:
+        conn = get_conn()
+        with conn.cursor() as cur:
+            cur.execute("SELECT worker_id, COUNT(*) AS c FROM violation GROUP BY worker_id")
+            violation_counts = {
+                r["worker_id"]: r["c"] for r in cur.fetchall() if r.get("worker_id") is not None
+            }
+    except Exception:
+        violation_counts = {}
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
     result: list[dict] = []
 
     for row in workers_raw:
@@ -1234,6 +1326,7 @@ def list_workers() -> list[dict]:
                 ),
                 "images": images,
                 "violations": violations,
+                "violation_count": violation_counts.get(wid, len(violations)),
             }
         )
 

@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Users, AlertTriangle, Video, Upload, Search, Shield } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
-import { fetchRecentAlerts, RecentAlert } from "@/lib/api";
+import { fetchRecentAlerts, RecentAlert, fetchViolations, fetchWorkers, WorkerApi } from "@/lib/api";
 
 const formatTimeAgo = (iso?: string | null) => {
   if (!iso) return "";
@@ -33,21 +33,33 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
 
-  const stats = {
-    totalWorkers: 47,
-    totalViolations: 23,
-    activeAlerts: 3,
-  };
+  const [totalViolations, setTotalViolations] = useState(0);
+  const [activeAlerts, setActiveAlerts] = useState(0);
+  const [unknownCount, setUnknownCount] = useState(0);
+  const [totalWorkers] = useState(47);
 
   const [recentAlerts, setRecentAlerts] = useState<RecentAlert[]>([]);
   const [loadingAlerts, setLoadingAlerts] = useState(false);
+  const [workers, setWorkers] = useState<WorkerApi[]>([]);
 
   useEffect(() => {
     const loadRecentAlerts = async () => {
       try {
         setLoadingAlerts(true);
-        const data = await fetchRecentAlerts(5);
+        const data = await fetchRecentAlerts(10);
         setRecentAlerts(data);
+        // derive unknowns and unsent helmet alerts
+        const unknowns = data.filter(
+          (a) =>
+            !a.worker_id ||
+            !a.worker_name ||
+            a.worker_name.toLowerCase() === "unknown"
+        ).length;
+        setUnknownCount(unknowns);
+        const unsent = data.filter(
+          (a) => a.sms_status && a.sms_status !== "sent" && a.sms_status !== "delivered"
+        ).length;
+        setActiveAlerts(unsent);
       } catch (err) {
         console.error("Failed to fetch recent alerts:", err);
         setRecentAlerts([]);
@@ -56,17 +68,51 @@ const Dashboard = () => {
       }
     };
 
+    const loadViolations = async () => {
+      try {
+        const vios = await fetchViolations(50);
+        setTotalViolations(vios.length);
+      } catch (err) {
+        console.error("Failed to fetch violations:", err);
+        setTotalViolations(0);
+      }
+    };
+
+    const loadWorkers = async () => {
+      try {
+        const w = await fetchWorkers();
+        setWorkers(w);
+      } catch (err) {
+        console.error("Failed to fetch workers:", err);
+        setWorkers([]);
+      }
+    };
+
     loadRecentAlerts();
+    loadViolations();
+    loadWorkers();
   }, []);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return;
+    const hit = workers.find(
+      (w) =>
+        w.name.toLowerCase().includes(q) ||
+        w.phone.toLowerCase().includes(q) ||
+        (w.location_name || "").toLowerCase().includes(q) ||
+        (w.company_name || "").toLowerCase().includes(q)
+    );
+    if (hit) {
+      navigate(`/workers/${hit.id}`);
+    }
   };
 
   const statCards = [
     {
       title: "Total Workers",
-      value: stats.totalWorkers,
+      value: totalWorkers,
       icon: Users,
       onClick: () => navigate("/workers"),
       delay: 0.2,
@@ -74,7 +120,7 @@ const Dashboard = () => {
     },
     {
       title: "Total Violations",
-      value: stats.totalViolations,
+      value: totalViolations,
       icon: AlertTriangle,
       onClick: () => navigate("/violations"),
       delay: 0.3,
@@ -82,15 +128,15 @@ const Dashboard = () => {
     },
     {
       title: "Active Safety Alerts",
-      value: stats.activeAlerts,
+      value: activeAlerts,
       icon: Shield,
       onClick: () => navigate("/workers"),
       delay: 0.4,
-      subtitle: "Requires attention",
+      subtitle: "Helmet-off alerts pending today",
     },
     {
       title: "EHS Security Breach – Unknown Individual",
-      value: 2,
+      value: unknownCount,
       icon: Shield,
       onClick: () => navigate("/violations"),
       delay: 0.5,
