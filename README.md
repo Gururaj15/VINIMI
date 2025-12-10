@@ -13,7 +13,7 @@ This project focuses on **ensuring workplace safety compliance** by detecting pe
 ---
 ## **Deep Dive Documentation**
 
-📖 **[The VINIMI: Purpose and Implementation](./The-VINIMI-:-Purpose-and-Implementation.md)** - Comprehensive guide covering project purpose, technical architecture, core components, feature implementations, database schema, API endpoints, real-world workflows, security, and future roadmap
+📖 **[The VINIMI: Purpose and Implementation](https://github.com/vinimifall2025-ops/VINIMI/wiki/The-VINIMI-:-Purpose-and-Implementation)** - Comprehensive guide covering project purpose, technical architecture, core components, feature implementations, database schema, API endpoints, real-world workflows, security, and future roadmap
 
 ## What We Have Done
 
