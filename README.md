@@ -11,6 +11,9 @@ This project focuses on **ensuring workplace safety compliance** by detecting pe
 *Figure: Architecture of VINIMI pipeline, showing dataset preparation, face recognition and helmet detection.*
 
 ---
+## **Deep Dive Documentation**
+
+📖 **[The VINIMI: Purpose and Implementation](./The-VINIMI-:-Purpose-and-Implementation.md)** - Comprehensive guide covering project purpose, technical architecture, core components, feature implementations, database schema, API endpoints, real-world workflows, security, and future roadmap
 
 ## What We Have Done
 
@@ -73,7 +76,8 @@ This project focuses on **ensuring workplace safety compliance** by detecting pe
 
 ---
 
-## Next Steps - Getting Started
+
+## Getting Started
 
 To **clone the repository, set up your local environment, and run VINIMI locally**, please refer to the comprehensive setup guide:
 
