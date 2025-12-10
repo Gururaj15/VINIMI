@@ -73,10 +73,28 @@ This project focuses on **ensuring workplace safety compliance** by detecting pe
 
 ---
 
-## Next Steps
+## Next Steps - Getting Started
+
+To **clone the repository, set up your local environment, and run VINIMI locally**, please refer to the comprehensive setup guide:
+
+📖 **[LOCAL_SETUP.md](./LOCAL_SETUP.md)** - Complete setup instructions for macOS, Windows, and Linux
+
+This guide includes:
+- ✅ Prerequisites and dependencies
+- ✅ MySQL database setup from SQL dump
+- ✅ Environment file configuration (.env)
+- ✅ Backend installation and startup
+- ✅ Frontend installation and startup
+- ✅ Troubleshooting common issues
+- ✅ Platform-specific instructions
+
+### Future Enhancements
 
 - Integrate **alerting system** to notify individuals via SMS if safety violations are detected.  
-- Extend **Vision-Language Q&A** to allow intuitive queries like “Is this person wearing a helmet?” or “Who is this?”  
+- Extend **Vision-Language Q&A** to allow intuitive queries like "Is this person wearing a helmet?" or "Who is this?"  
+- Add **real-time dashboard** with violation analytics and reporting.
+- Implement **multi-camera support** for enterprise deployments.
+- Deploy **mobile app** for worker check-in and alert notifications.
 
 ---
 
