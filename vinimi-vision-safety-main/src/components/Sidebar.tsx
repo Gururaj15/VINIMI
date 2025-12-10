@@ -13,7 +13,7 @@ import {
   CircleHelp,
 } from "lucide-react";
 import * as Tooltip from "@radix-ui/react-tooltip";
-import brandLogo from "@/assets/logo1.png";
+import brandLogo from "@/assets/logof.png";
 import { useToast } from "@/hooks/use-toast";
 
 type NavItem = {

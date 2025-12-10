@@ -7,7 +7,7 @@ import HowItWorks from "@/components/home/HowItWorks";
 import UseCases from "@/components/home/UseCases";
 import SocialProof from "@/components/home/SocialProof";
 import FinalCTA from "@/components/home/FinalCTA";
-import logo from "@/assets/logo1.png";
+import logo from "@/assets/logof.png";
 import { getManager, clearManager } from "@/lib/auth";
 
 const Home = () => {

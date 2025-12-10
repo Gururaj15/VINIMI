@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { ArrowRight, ShieldCheck, Sparkles } from "lucide-react";
 import { isAuthed } from "@/lib/auth";
-import brandLogo from "@/assets/logo1.png";
+import brandLogo from "@/assets/logof.png";
 
 const Hero = () => {
   const navigate = useNavigate();

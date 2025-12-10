@@ -120,7 +120,7 @@ const WorkerRegisterModal: React.FC<WorkerRegisterModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30">
+    <div className="fixed inset-0 z-50 flex items-start justify-start bg-slate-900/30 px-6 py-6">
       <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-lg border border-slate-200">
         <h2 className="text-lg font-semibold mb-1 text-slate-900">
           Register Unknown Person

@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { managerSignup } from "@/lib/api";
 import { setSession } from "@/lib/auth";
-import brandLogo from "@/assets/logo1.png";
+import brandLogo from "@/assets/logof.png";
 import { ShieldPlus, Mail, Lock, User2, Hash } from "lucide-react";
 
 const signupSchema = z

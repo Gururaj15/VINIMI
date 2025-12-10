@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { managerLogin } from "@/lib/api";
 import { setSession } from "@/lib/auth";
-import brandLogo from "@/assets/logo1.png";
+import brandLogo from "@/assets/logof.png";
 
 const loginSchema = z.object({
   email: z.string().email("Enter a valid email"),
