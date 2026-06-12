@@ -98,7 +98,7 @@ This guide includes:
 - Extend **Vision-Language Q&A** to allow intuitive queries like "Is this person wearing a helmet?" or "Who is this?"  
 - Add **real-time dashboard** with violation analytics and reporting.
 - Implement **multi-camera support** for enterprise deployments.
-- Deploy **mobile app** for worker check-in and alert notifications.
+- Deploy for worker check-in and alert notifications.
 
 ---
 
